@@ -12,7 +12,7 @@ export default `#!name = WeatherKit-Proxy
 
 [filter_local]
 host-suffix, weatherkit.apple.com, direct
-host-suffix, __DOMAIN__, direct
+host-suffix, __DOMAIN__, __DOMAIN_POLICY__
 host, weather-analytics-events.apple.com, reject
 host-suffix, tthr.apple.com, reject
 host, tether.edge.apple, reject

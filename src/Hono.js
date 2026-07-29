@@ -3,6 +3,7 @@ import ColorfulClouds from "./class/ColorfulClouds.mjs";
 import HonoWorkerAdapter from "./class/HonoWorkerAdapter.mjs";
 import QWeather from "./class/QWeather.mjs";
 import buildSettings from "./function/buildSettings.mjs";
+import { decodeConfigPayload } from "./function/configPayload.mjs";
 import configs, { renderClientConfig } from "./function/configs/index.mjs";
 import database from "./function/database.mjs";
 import filterWeatherKitDataSets from "./function/filterWeatherKitDataSets.mjs";
@@ -70,12 +71,14 @@ async function handleConfigDownload(c, filename, configParam) {
     }
 
     let proxyAirQualityScale = true;
+    let domainPolicy = "DIRECT";
     if (configParam) {
         try {
-            const pageConfig = JSON.parse(decodeBase64Config(configParam));
+            const pageConfig = JSON.parse(decodeConfigPayload(configParam));
             proxyAirQualityScale = pageConfig?.Proxy?.AirQualityScale !== false;
+            domainPolicy = normalizeDomainPolicy(pageConfig?.Proxy?.DomainPolicy);
         } catch (e) {
-            console.warn("Failed to read airQualityScale proxy option from config:", e);
+            console.warn("Failed to read proxy options from config:", e);
         }
     }
     const configContent = renderClientConfig(filenameParam, proxyAirQualityScale);
@@ -96,11 +99,29 @@ async function handleConfigDownload(c, filename, configParam) {
     let content = configContent.replaceAll("__PLAIN_HOST__", host);
     content = content.replaceAll("__HOST__", targetHost);
     content = content.replaceAll("__DOMAIN__", domainOnly);
+    content = content.replaceAll("__DOMAIN_POLICY__", formatDomainPolicy(filenameParam, domainPolicy));
     content = content.replaceAll("__DATE__", cstDateString);
 
     c.header("Content-Type", "text/plain; charset=utf-8");
     c.header("Content-Disposition", `attachment; filename="${filenameParam}"`);
     return c.body(content);
+}
+
+function normalizeDomainPolicy(value) {
+    if (typeof value !== "string") return "DIRECT";
+    const policy = value.trim();
+    return policy && policy.length <= 64 && !/[,\r\n\0]/.test(policy) ? policy : "DIRECT";
+}
+
+function formatDomainPolicy(filename, policy) {
+    if (filename === "weatherkit-proxy.snippet") {
+        if (/^direct$/i.test(policy)) return "direct";
+        if (/^reject$/i.test(policy)) return "reject";
+    }
+    if (filename === "weatherkit-proxy.yaml") {
+        return JSON.stringify(policy);
+    }
+    return policy;
 }
 
 // 配置下载路由，将占位域名替换为当前部署的域名（兼容旧参数形式）
@@ -240,15 +261,6 @@ async function handleWeatherRequest(c, queryArguments = {}) {
     });
 }
 
-// 将 URL 中的 base64 配置解码为对象。
-// 兼容标准 base64 与 URL 安全的 base64（base64url）：
-// 新链接使用 base64url（不含 "/" "+" 与 "=" 填充），旧链接与已下发到设备上的配置可能是标准 base64，需一并兼容。
-function decodeBase64Config(str) {
-    let s = str.replace(/-/g, "+").replace(/_/g, "/");
-    while (s.length % 4) s += "=";
-    return decodeURIComponent(escape(atob(s)));
-}
-
 // 带配置前缀的请求路由
 app.get("/p/:configBase64/:rest{.*}", async c => {
     // rest 必须是合法的 WeatherKit 上游子路径，否则不转发，避免乱输入打到 Apple 或被当作自定义上游 host
@@ -259,7 +271,7 @@ app.get("/p/:configBase64/:rest{.*}", async c => {
     let queryArguments = {};
     try {
         if (configBase64) {
-            const decoded = decodeBase64Config(configBase64);
+            const decoded = decodeConfigPayload(configBase64);
             queryArguments = JSON.parse(decoded);
         }
     } catch (e) {

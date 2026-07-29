@@ -29,7 +29,7 @@ rules:
 - AND,((IP-CIDR,65.199.22.0/23,no-resolve),(PROTOCOL,UDP),(DST-PORT,443)),REJECT-NO-DROP
 - AND,((OR,((IP-ASN,714,no-resolve),(IP-ASN,6185,no-resolve))),(PROTOCOL,QUIC)),REJECT-DROP
 - DOMAIN-SUFFIX,weatherkit.apple.com,DIRECT
-- DOMAIN-SUFFIX,__DOMAIN__,DIRECT
+- DOMAIN-SUFFIX,__DOMAIN__,__DOMAIN_POLICY__
 - DOMAIN,weather-analytics-events.apple.com,REJECT-DROP
 - DOMAIN-SUFFIX,tthr.apple.com,REJECT-DROP
 - DOMAIN,tether.edge.apple,REJECT-DROP

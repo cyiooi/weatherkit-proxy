@@ -169,7 +169,7 @@ rules:
     policy: DIRECT
 - domain_suffix:
     match: __DOMAIN__
-    policy: DIRECT
+    policy: __DOMAIN_POLICY__
 - domain:
     match: weather-analytics-events.apple.com
     policy: REJECT-DROP

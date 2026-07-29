@@ -809,6 +809,12 @@ export function renderIndex(host, protocol) {
                         </div>
                     </div>
 
+                    <div class="form-group">
+                        <label class="form-label" for="domainPolicy">[部署域名] 分流策略</label>
+                        <input class="form-input" type="text" id="domainPolicy" value="DIRECT" maxlength="64" placeholder="DIRECT">
+                        <span class="form-desc">填写客户端内已有的策略组名称，例如“PROXY”或“🚀 节点选择”。留空时使用 DIRECT；不支持逗号或换行。</span>
+                    </div>
+
                     <div class="checkbox-group">
                         <input class="checkbox-input" type="checkbox" id="proxyAirQualityScale" checked>
                         <label class="checkbox-label" for="proxyAirQualityScale">
@@ -927,6 +933,7 @@ export function renderIndex(host, protocol) {
         const replaceHourly = document.getElementById("replaceHourly");
         const edgeCache = document.getElementById("edgeCache");
         const proxyAirQualityScale = document.getElementById("proxyAirQualityScale");
+        const domainPolicy = document.getElementById("domainPolicy");
         
         // 选项卡与控制
         const stepConfig = document.getElementById("stepConfig");
@@ -1054,19 +1061,45 @@ export function renderIndex(host, protocol) {
             }
         }
 
-        // 将 JSON 配置编码为 URL 安全的 base64（base64url）。
-        // 标准 base64 含有 "/" 与 "+"，放入 URL 路径会被当作分隔符截断、
-        // 放入 query 会被 URLSearchParams 把 "+" 解码成空格，因此改用 base64url。
-        function encodeBase64Url(str) {
-            return btoa(unescape(encodeURIComponent(str)))
-                .replace(/\\+/g, "-")
-                .replace(/\\//g, "_")
-                .replace(/=+$/, "");
+        // 使用全小写 Base32 编码配置。Loon 会把复写目标中的路径转为小写，
+        // 混合大小写的 base64url 会因此损坏；b32_ 前缀也便于兼容旧分享链接。
+        const CONFIG_BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+        function encodeConfigPayload(str) {
+            const bytes = new TextEncoder().encode(str);
+            let output = "";
+            let value = 0;
+            let bits = 0;
+            for (const byte of bytes) {
+                value = (value << 8) | byte;
+                bits += 8;
+                while (bits >= 5) {
+                    output += CONFIG_BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+                    bits -= 5;
+                }
+            }
+            if (bits > 0) output += CONFIG_BASE32_ALPHABET[(value << (5 - bits)) & 31];
+            return "b32_" + output;
         }
 
-        // 兼容标准 base64 与 base64url 的解码，并补齐可能缺失的 padding。
-        // 旧的分享链接与已下发到设备上的配置可能仍是标准 base64，需一并兼容。
-        function decodeBase64Url(str) {
+        function decodeConfigPayload(str) {
+            if (str.startsWith("b32_")) {
+                const input = str.slice(4);
+                if (!/^[a-z2-7]+$/.test(input)) throw new TypeError("Invalid base32 configuration payload");
+                const bytes = [];
+                let value = 0;
+                let bits = 0;
+                for (const character of input) {
+                    value = (value << 5) | CONFIG_BASE32_ALPHABET.indexOf(character);
+                    bits += 5;
+                    if (bits >= 8) {
+                        bytes.push((value >>> (bits - 8)) & 255);
+                        bits -= 8;
+                    }
+                }
+                return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes));
+            }
+
+            // 旧链接仍可能使用标准 base64 或 base64url。
             let s = str.replace(/-/g, "+").replace(/_/g, "/");
             while (s.length % 4) s += "=";
             return decodeURIComponent(escape(atob(s)));
@@ -1150,7 +1183,10 @@ export function renderIndex(host, protocol) {
             let config = {};
             if (currentPreset === "Caiyun") {
                 config = {
-                    Proxy: { AirQualityScale: proxyAirQualityScale.checked },
+                    Proxy: {
+                        AirQualityScale: proxyAirQualityScale.checked,
+                        DomainPolicy: domainPolicy.value.trim() || "DIRECT"
+                    },
                     EdgeCache: false,
                     Weather: { Provider: "ColorfulClouds", ReplaceDaily: true, ReplaceHourly: true },
                     NextHour: { Provider: "ColorfulClouds" },
@@ -1169,7 +1205,10 @@ export function renderIndex(host, protocol) {
                 };
             } else if (currentPreset === "QWeather") {
                 config = {
-                    Proxy: { AirQualityScale: proxyAirQualityScale.checked },
+                    Proxy: {
+                        AirQualityScale: proxyAirQualityScale.checked,
+                        DomainPolicy: domainPolicy.value.trim() || "DIRECT"
+                    },
                     EdgeCache: false,
                     Weather: { Provider: "QWeather", ReplaceDaily: true, ReplaceHourly: true },
                     NextHour: { Provider: "QWeather" },
@@ -1191,7 +1230,10 @@ export function renderIndex(host, protocol) {
                 };
             } else {
                 config = {
-                    Proxy: { AirQualityScale: proxyAirQualityScale.checked },
+                    Proxy: {
+                        AirQualityScale: proxyAirQualityScale.checked,
+                        DomainPolicy: domainPolicy.value.trim() || "DIRECT"
+                    },
                     EdgeCache: presetData.Advanced.edgeCache,
                     Weather: { 
                         Provider: presetData.Advanced.weatherProvider,
@@ -1271,6 +1313,7 @@ export function renderIndex(host, protocol) {
                                 presetData.Advanced.pollutantsUnitsMode !== "Scale";
             }
             hasCustomData = hasCustomData || !proxyAirQualityScale.checked;
+            hasCustomData = hasCustomData || (domainPolicy.value.trim() && domainPolicy.value.trim().toUpperCase() !== "DIRECT");
             
             // 保存/更新本地浏览器存储 (LocalStorage)
             const storageState = {
@@ -1296,9 +1339,9 @@ export function renderIndex(host, protocol) {
             
             try {
                 const jsonStr = JSON.stringify(config);
-                return encodeBase64Url(jsonStr);
+                return encodeConfigPayload(jsonStr);
             } catch (e) {
-                console.error("Base64 encode error:", e);
+                console.error("Configuration encode error:", e);
                 return "";
             }
         }
@@ -1444,6 +1487,7 @@ export function renderIndex(host, protocol) {
             currentPreset = "Caiyun";
             presetData = createDefaultPresetData();
             proxyAirQualityScale.checked = true;
+            domainPolicy.value = "DIRECT";
             localStorage.removeItem("weatherkit_config_state");
             localStorage.removeItem("weatherkit_config");
 
@@ -1490,7 +1534,8 @@ export function renderIndex(host, protocol) {
             aqiStandard, aqiSource, forceCalculate,
             forceCNPrimaryPollutants, allowOverRange, replaceWhenCurrentChange,
             weatherReplace, pollutantsUnitsMode,
-            indexReplace, unitsReplace, replaceDaily, replaceHourly, edgeCache, proxyAirQualityScale
+            indexReplace, unitsReplace, replaceDaily, replaceHourly, edgeCache, proxyAirQualityScale,
+            domainPolicy
         ];
         inputs.forEach(input => {
             if (input) {
@@ -1535,6 +1580,7 @@ export function renderIndex(host, protocol) {
             presetData.Advanced.replaceHourly = decoded.Weather?.ReplaceHourly !== false;
             presetData.Advanced.edgeCache = decoded.EdgeCache === true;
             proxyAirQualityScale.checked = decoded.Proxy?.AirQualityScale !== false;
+            domainPolicy.value = decoded.Proxy?.DomainPolicy || "DIRECT";
 
             const indexReplaceArr = decoded.AirQuality?.Current?.Index?.Replace ?? ["HJ6332012"];
             presetData.Advanced.indexReplace = indexReplaceArr[0] || "HJ6332012";
@@ -1592,7 +1638,7 @@ export function renderIndex(host, protocol) {
             
             if (configStr) {
                 try {
-                    const decoded = JSON.parse(decodeBase64Url(configStr));
+                    const decoded = JSON.parse(decodeConfigPayload(configStr));
                     applyConfig(decoded);
                     localStorage.setItem("weatherkit_config", JSON.stringify(decoded));
                     showToast("已载入链接中备份的天气配置");

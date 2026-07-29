@@ -1,6 +1,7 @@
 // 各代理客户端配置按客户端拆分维护，此处统一聚合为 { 文件名: 配置内容 }。
 // 占位符由 src/Hono.js 在 /conf/:filename 下载时替换：__HOST__（携带 base64 配置路径，仅 api/v2/weather 使用）、
-// __PLAIN_HOST__（裸主机，availability/airQualityScale 等无需配置的接口）、__DOMAIN__、__DATE__。
+// __PLAIN_HOST__（裸主机，availability/airQualityScale 等无需配置的接口）、__DOMAIN__、
+// __DOMAIN_POLICY__（部署域名的分流策略）、__DATE__。
 // airQualityScale 规则在下载时按页面选项渲染；文件名始终保持不变。
 import egern from "./egern.mjs";
 import loon from "./loon.mjs";
