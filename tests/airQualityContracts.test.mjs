@@ -78,17 +78,25 @@ test("和风空气质量在 level 为空时依据 AQI 推导有效等级", async
     );
 });
 
-test("和风 Hourly 与 Daily reportedTime 均为 epoch seconds", async () => {
+test("和风各预报产品使用接口 updateTime 作为 reportedTime", async () => {
     const expected = Math.trunc(Date.parse(qWeatherHourly.updateTime) / 1000);
+    const expectedMinutely = Math.trunc(Date.parse(qWeatherMinutely.updateTime) / 1000);
     await withFetch(
-        url => (url.includes("/v7/weather/24h") ? qWeatherHourly : qWeatherDaily),
+        url => {
+            if (url.includes("/v7/minutely/5m")) return qWeatherMinutely;
+            if (url.includes("/v7/weather/24h")) return qWeatherHourly;
+            return qWeatherDaily;
+        },
         async () => {
             const provider = new QWeather(parameters, "test-token");
+            const nextHour = await provider.Minutely();
             const hourly = await provider.Hourly(24);
             const daily = await provider.Daily(10);
 
+            assert.equal(nextHour.metadata.reportedTime, expectedMinutely);
             assert.equal(hourly.metadata.reportedTime, expected);
             assert.equal(daily.metadata.reportedTime, expected);
+            assert.equal(roundTrip("forecastNextHour", nextHour).metadata.reportedTime, expectedMinutely);
             assert.equal(roundTrip("forecastHourly", hourly).metadata.reportedTime, expected);
         },
     );
@@ -159,4 +167,17 @@ const qWeatherDaily = {
     ],
     fxLink: "https://www.qweather.com/",
     updateTime: qWeatherHourly.updateTime,
+};
+
+const qWeatherMinutely = {
+    code: "200",
+    fxLink: "https://www.qweather.com/",
+    minutely: [
+        {
+            fxTime: "2026-07-16T08:05:00+08:00",
+            precip: "0.2",
+        },
+    ],
+    summary: "未来一小时有小雨",
+    updateTime: "2026-07-16T08:00:37+08:00",
 };
