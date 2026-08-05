@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Builder, ByteBuffer } from "flatbuffers";
 import WeatherKit2 from "../src/class/WeatherKit2.mjs";
-import { Weather } from "../src/proto/apple/wk2.js";
+import { DailyForecastData, DayPartForecast, DayWeatherConditions, Weather, WeatherCondition } from "../src/proto/apple/wk2.js";
 
 const injectableDataSets = ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "weatherAlerts"];
 const unrelatedKnownDataSets = ["news", "weatherChanges", "historicalComparisons", "locationInfo"];
@@ -148,6 +148,32 @@ test("decode reads a non-empty forecastNextHour condition vector as Condition ta
     assert.equal(conditions[1].parameters.length, 0);
 });
 
+test("forecastDaily encodes and decodes daytime/overnight using Apple field slots", () => {
+    const encoded = encodeDailyForecast({
+        days: [
+            {
+                forecastStart: 100,
+                forecastEnd: 200,
+                precipitationAmountByType: [],
+                daytimeForecast: createDayPart("RAIN", 110, 150),
+                overnightForecast: createDayPart("CLOUDY", 150, 190),
+            },
+        ],
+    });
+    const encodedRoot = DailyForecastData.getRootAsDailyForecastData(new ByteBuffer(encoded));
+    const encodedDay = encodedRoot.days(0);
+
+    assert.equal(readConditionAtDayPartSlot(encodedDay, 70), "RAIN", "slot 33 / offset 70 must contain daytimeForecast");
+    assert.equal(readConditionAtDayPartSlot(encodedDay, 72), "CLOUDY", "slot 34 / offset 72 must contain overnightForecast");
+
+    const canonical = createCanonicalDailyForecast();
+    const canonicalBuffer = new ByteBuffer(canonical);
+    const canonicalRoot = DailyForecastData.getRootAsDailyForecastData(canonicalBuffer);
+    const decoded = WeatherKit2.decode(canonicalBuffer, "forecastDaily", canonicalRoot);
+    assert.equal(decoded.days[0].daytimeForecast.conditionCode, "RAIN");
+    assert.equal(decoded.days[0].overnightForecast.conditionCode, "CLOUDY");
+});
+
 function createWeatherRoot(presentSlots) {
     const builder = new Builder(256);
     const tables = new Map(presentSlots.map(slot => [slot, createEmptyTable(builder)]));
@@ -161,4 +187,48 @@ function createWeatherRoot(presentSlots) {
 function createEmptyTable(builder) {
     builder.startObject(0);
     return builder.endObject();
+}
+
+function encodeDailyForecast(data) {
+    const builder = new Builder(256);
+    const root = WeatherKit2.encode(builder, "forecastDaily", data);
+    builder.finish(root);
+    return builder.asUint8Array().slice();
+}
+
+function createDayPart(conditionCode, forecastStart, forecastEnd) {
+    return {
+        conditionCode,
+        forecastStart,
+        forecastEnd,
+        precipitationAmountByType: [],
+    };
+}
+
+function readConditionAtDayPartSlot(day, vtableOffset) {
+    const fieldOffset = day.bb.__offset(day.bb_pos, vtableOffset);
+    assert.notEqual(fieldOffset, 0, `missing day-part field at vtable offset ${vtableOffset}`);
+    const dayPart = new DayPartForecast().__init(day.bb.__indirect(day.bb_pos + fieldOffset), day.bb);
+    return WeatherCondition[dayPart.conditionCode()];
+}
+
+function createCanonicalDailyForecast() {
+    const builder = new Builder(256);
+    const daytimeOffset = createConditionDayPart(builder, "RAIN");
+    const overnightOffset = createConditionDayPart(builder, "CLOUDY");
+
+    DayWeatherConditions.startDayWeatherConditions(builder);
+    builder.addFieldOffset(33, daytimeOffset, 0);
+    builder.addFieldOffset(34, overnightOffset, 0);
+    const dayOffset = DayWeatherConditions.endDayWeatherConditions(builder);
+    const daysOffset = DailyForecastData.createDaysVector(builder, [dayOffset]);
+    const root = DailyForecastData.createDailyForecastData(builder, 0, daysOffset);
+    builder.finish(root);
+    return builder.asUint8Array().slice();
+}
+
+function createConditionDayPart(builder, conditionCode) {
+    DayPartForecast.startDayPartForecast(builder);
+    DayPartForecast.addConditionCode(builder, WeatherCondition[conditionCode]);
+    return DayPartForecast.endDayPartForecast(builder);
 }

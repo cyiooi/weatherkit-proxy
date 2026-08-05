@@ -2491,11 +2491,11 @@ export class DayWeatherConditions {
         const t = this.bb.__offset(this.bb_pos, 68);
         return t ? this.bb.readFloat32(this.bb_pos + t) : 0;
     }
-    overnightForecast(optional) {
+    daytimeForecast(optional) {
         const e = this.bb.__offset(this.bb_pos, 70);
         return e ? (optional || new DayPartForecast()).__init(this.bb.__indirect(this.bb_pos + e), this.bb) : null;
     }
-    daytimeForecast(optional) {
+    overnightForecast(optional) {
         const e = this.bb.__offset(this.bb_pos, 72);
         return e ? (optional || new DayPartForecast()).__init(this.bb.__indirect(this.bb_pos + e), this.bb) : null;
     }
@@ -2613,10 +2613,10 @@ export class DayWeatherConditions {
     static addVisibilityMin(builder, value) {
         builder.addFieldFloat32(32, value, 0);
     }
-    static addOvernightForecast(builder, value) {
+    static addDaytimeForecast(builder, value) {
         builder.addFieldOffset(33, value, 0);
     }
-    static addDaytimeForecast(builder, value) {
+    static addOvernightForecast(builder, value) {
         builder.addFieldOffset(34, value, 0);
     }
     static addRestOfDayForecast(builder, value) {
