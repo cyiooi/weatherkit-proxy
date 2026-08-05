@@ -298,7 +298,7 @@ export default class ColorfulClouds {
         url.searchParams.set("language", this.language);
 
         try {
-            const response = await fetch({ url: url.toString(), headers: this.headers });
+            const response = await fetch({ url: url.toString(), headers: this.headers, timeout: 3 });
             const body = JSON.parse(response?.body ?? "{}");
             if (response?.ok === false) {
                 Console.warn("WeatherAlert", `upstreamStatus: ${response.statusCode ?? response.status}`);
@@ -307,7 +307,8 @@ export default class ColorfulClouds {
             if (!Array.isArray(body?.alerts)) throw Error(JSON.stringify(body?.error ?? body?.reason ?? body?.code ?? body));
             return this.#CreateWeatherAlerts(body);
         } catch (error) {
-            Console.error(`WeatherAlert: ${error}`);
+            const reason = error?.cause?.code || error?.cause?.message || error?.message || String(error);
+            Console.warn("WeatherAlert", `unavailable: ${reason}`);
             return failedWeatherAlerts;
         } finally {
             Console.debug("✅ WeatherAlert");

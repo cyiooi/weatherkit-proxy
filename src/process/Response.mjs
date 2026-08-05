@@ -136,7 +136,7 @@ export async function Response($request, $response, context = {}) {
                 case "application/vnd.apple.flatbuffer": {
                     const parameters = preParameters || parseWeatherKitURL(url);
                     const shouldReplace = Settings?.Weather?.Replace?.includes(parameters.country);
-                    const shouldProcessWeatherAlerts = parameters.dataSets?.includes("weatherAlerts") && Settings?.WeatherAlerts?.Provider !== "WeatherKit";
+                    const shouldProcessWeatherAlerts = parameters.dataSets?.includes("weatherAlerts") && WeatherAlerts.CanUseProvider(Settings);
                     if (!shouldReplace && !shouldProcessWeatherAlerts) {
                         Console.log(`[proxy] 国家 ${parameters.country} 无需替换，直接跳过 FlatBuffer 编解码。`);
                         break;
@@ -459,7 +459,8 @@ async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, paramet
 
     let sourceAlerts;
     let attributionUrl;
-    const providerName = Settings?.WeatherAlerts?.Provider || "ColorfulClouds";
+    const providerName = WeatherAlerts.ResolveProvider(Settings);
+    if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return weatherAlerts;
     switch (providerName) {
         case "WeatherKit":
             return weatherAlerts;
@@ -468,10 +469,11 @@ async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, paramet
             attributionUrl = "https://developer.qweather.com/attribution.html";
             break;
         case "ColorfulClouds":
-        default:
             sourceAlerts = await enviroments.colorfulClouds.WeatherAlert();
             attributionUrl = "https://www.caiyunapp.com/h5";
             break;
+        default:
+            return weatherAlerts;
     }
     if (!Array.isArray(sourceAlerts?.alerts) || !sourceAlerts.alerts.length) return weatherAlerts;
 

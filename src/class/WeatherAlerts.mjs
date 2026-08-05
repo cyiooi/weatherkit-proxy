@@ -5,6 +5,31 @@
  * QWeather HTML scraper is intentionally not included here.
  */
 export default class WeatherAlerts {
+    /** Resolve weather-alert enrichment to an explicitly supported provider. */
+    static ResolveProvider(settings) {
+        switch (settings?.WeatherAlerts?.Provider) {
+            case "ColorfulClouds":
+            case "QWeather":
+                return settings.WeatherAlerts.Provider;
+            case "WeatherKit":
+                return "WeatherKit";
+            default:
+                return "QWeather";
+        }
+    }
+
+    /** QWeather has an upstream public Key; Caiyun CAP requires an explicit authorized token. */
+    static CanUseProvider(settings, providerName = WeatherAlerts.ResolveProvider(settings)) {
+        switch (providerName) {
+            case "ColorfulClouds":
+                return String(settings?.API?.ColorfulClouds?.Token ?? "").trim().length > 0;
+            case "QWeather":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     static ParseCoordinateIdentifier(ids) {
         const match = String(ids ?? "")
             .trim()

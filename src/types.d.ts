@@ -61,8 +61,9 @@ export interface Settings {
          * [天气预警] 补全数据源
          *
          * 只补全国家预警中心已有的 WeatherKit 预警摘要；WeatherKit 表示不补全。
+         * 和风 Token 留空时使用上游内置公共 Key；彩云 Token 需显式配置且具备 CAP 接口权限。
          *
-         * @defaultValue "ColorfulClouds"
+         * @defaultValue "QWeather"
          */
         Provider?: "WeatherKit" | "ColorfulClouds" | "QWeather";
     };

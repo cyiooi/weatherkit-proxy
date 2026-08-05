@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Builder, ByteBuffer } from "flatbuffers";
 import ColorfulClouds from "../src/class/ColorfulClouds.mjs";
-import QWeather from "../src/class/QWeather.mjs";
+import QWeather, { QWEATHER_PUBLIC_TOKEN } from "../src/class/QWeather.mjs";
 import WeatherAlerts from "../src/class/WeatherAlerts.mjs";
 import WeatherKit2 from "../src/class/WeatherKit2.mjs";
 import { encodeConfigPayload } from "../src/function/configPayload.mjs";
@@ -67,6 +67,23 @@ test("weatherAlerts 只接管合法的明文经纬度标识", () => {
     }
 });
 
+test("天气预警默认使用 QWeather 公共 Key，彩云 CAP 仍要求显式 Token", () => {
+    assert.equal(WeatherAlerts.ResolveProvider({}), "QWeather");
+    assert.equal(WeatherAlerts.ResolveProvider({ WeatherAlerts: { Provider: "unknown" } }), "QWeather");
+    assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "ColorfulClouds" }, API: { ColorfulClouds: { Token: null } } }), false);
+    assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "ColorfulClouds" }, API: { ColorfulClouds: { Token: "  " } } }), false);
+    assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "QWeather" }, API: { QWeather: { Token: null } } }), true);
+});
+
+test("和风 Token 为空时使用上游公共 Key", async () => {
+    assert.equal(QWEATHER_PUBLIC_TOKEN, "bdd98ec1d87747f3a2e8b1741a5af796");
+    await withMockedFetch(QWEATHER_ALERT_API, async requested => {
+        await new QWeather({ country: "CN", language: "zh-CN", latitude: "32.115", longitude: "118.814" }, null).WeatherAlert();
+        assert.equal(requested.length, 1);
+        assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
+    });
+});
+
 test("和风预警 API 使用所选语言、Host 与 Token，并标准化预警字段", async () => {
     await withMockedFetch(QWEATHER_ALERT_API, async requested => {
         let extracted;
@@ -81,6 +98,7 @@ test("和风预警 API 使用所选语言、Host 与 Token，并标准化预警�
             assert.equal(request.url, `https://api.example.qweather.com/weatheralert/v1/current/32.115/118.814?lang=${expectedLanguage}`);
             assert.equal(request.headers.get("X-QW-Api-Key"), "test-token");
             assert.equal(request.headers.get("Accept"), "application/json");
+            assert.ok(request.signal instanceof AbortSignal, "预警请求应设置超时信号");
         }
 
         assert.equal(extracted.source, "南京市气象台");
@@ -129,6 +147,7 @@ test("彩云 CAP 预警 API 映射语言并标准化预警字段", async () => {
             assert.equal(request.searchParams.get("latitude"), "34.05");
             assert.equal(request.searchParams.get("language"), expectedLanguage);
             assert.equal(requested.at(-1).headers.get("Referer"), "https://caiyunapp.com/");
+            assert.ok(requested.at(-1).signal instanceof AbortSignal, "预警请求应设置超时信号");
         }
 
         assert.equal(extracted.source, "NWS Los Angeles/Oxnard CA");
@@ -185,6 +204,101 @@ test("v1 weatherAlerts 详情接口按配置返回 Apple 兼容 JSON", async () 
             { language: "zh-CN", text: "有关部门落实防暑降温保障措施。\n尽量避免在高温时段进行户外活动。" },
         ]);
     });
+});
+
+test("v1 weatherAlerts 默认使用 QWeather 公共 Key", async () => {
+    await withMockedFetch(QWEATHER_ALERT_API, async requested => {
+        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
+        const body = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(requested.length, 1);
+        assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
+        assert.equal(body.length, 1);
+        assert.equal(body[0].areaId, "320100");
+    });
+});
+
+test("v1 weatherAlerts 默认 QWeather 连接失败时回退 Apple 原始详情", async () => {
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async input => {
+        const url = typeof input === "string" ? input : input?.url;
+        requested.push(url);
+        if (url.startsWith("https://devapi.qweather.com/")) throw new TypeError("fetch failed");
+        return new globalThis.Response(JSON.stringify([{ id: "apple-alert", source: "Apple" }]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+        });
+    };
+
+    try {
+        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
+        assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
+        assert.equal(requested.length, 2);
+        assert.match(requested[0], /^https:\/\/devapi\.qweather\.com\/weatheralert\/v1\/current\//);
+        assert.match(requested[1], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v1 weatherAlerts 的旧彩云配置缺少 Token 时直接透传 Apple", async () => {
+    const encoded = encodeConfigPayload(
+        JSON.stringify({
+            WeatherAlerts: { Provider: "ColorfulClouds" },
+            API: { ColorfulClouds: { Token: null } },
+        }),
+    );
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async input => {
+        const url = typeof input === "string" ? input : input?.url;
+        requested.push(url);
+        return new globalThis.Response(JSON.stringify([{ id: "apple-alert", source: "Apple" }]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+        });
+    };
+
+    try {
+        const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
+        assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
+        assert.equal(requested.length, 1);
+        assert.match(requested[0], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v1 weatherAlerts 第三方连接失败时回退 Apple 原始详情", async () => {
+    const encoded = encodeConfigPayload(
+        JSON.stringify({
+            WeatherAlerts: { Provider: "ColorfulClouds" },
+            API: { ColorfulClouds: { Token: "cap-token" } },
+        }),
+    );
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async input => {
+        const url = typeof input === "string" ? input : input?.url;
+        requested.push(url);
+        if (url.startsWith("https://singer.caiyunhub.com/")) throw new TypeError("fetch failed");
+        return new globalThis.Response(JSON.stringify([{ id: "apple-alert", source: "Apple" }]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+        });
+    };
+
+    try {
+        const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
+        assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
+        assert.equal(requested.length, 2);
+        assert.match(requested[0], /^https:\/\/singer\.caiyunhub\.com\/v3\/cap_alert\/location\?/);
+        assert.match(requested[1], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test("v1 weatherAlerts 的 Apple 原生 UUID 继续透传上游", async () => {
@@ -268,7 +382,7 @@ test("v2 weatherAlerts 在非天气替换国家也会补全，并保留单条 Ap
             status: 200,
         },
         {
-            Settings: { Weather: { Replace: [] }, WeatherAlerts: { Provider: "QWeather" } },
+            Settings: { Weather: { Replace: [] }, WeatherAlerts: { Provider: "QWeather" }, API: { QWeather: { Token: "test-token" } } },
             parameters: { country: "US", dataSets: ["weatherAlerts"], language: "zh-Hans", latitude: 32.115, longitude: 118.814 },
             enviroments: {
                 country: "US",
@@ -304,7 +418,7 @@ test("v2 weatherAlerts 对其他 Apple 数据源保持字节级透传", async ()
             status: 200,
         },
         {
-            Settings: { Weather: { Replace: [] }, WeatherAlerts: { Provider: "QWeather" } },
+            Settings: { Weather: { Replace: [] }, WeatherAlerts: { Provider: "QWeather" }, API: { QWeather: { Token: "test-token" } } },
             parameters: { country: "US", dataSets: ["weatherAlerts"], language: "en", latitude: 32.115, longitude: 118.814 },
             enviroments: {
                 country: "US",
@@ -316,12 +430,47 @@ test("v2 weatherAlerts 对其他 Apple 数据源保持字节级透传", async ()
     assert.deepEqual(new Uint8Array(response.body), originalBytes);
 });
 
+test("v2 weatherAlerts 的旧彩云配置缺少 Token 时不请求第三方并字节级透传", async () => {
+    const originalBytes = createWeatherAlertRoot("National Early Warning Center");
+    let thirdPartyRequests = 0;
+    const response = await Response(
+        {
+            url: "https://weatherkit.apple.com/api/v2/weather/zh-Hans-US/32.115/118.814?country=US&dataSets=weatherAlerts",
+        },
+        {
+            bodyBytes: originalBytes,
+            headers: { "Content-Type": "application/vnd.apple.flatbuffer" },
+            status: 200,
+        },
+        {
+            Settings: {
+                Weather: { Replace: [] },
+                WeatherAlerts: { Provider: "ColorfulClouds" },
+                API: { ColorfulClouds: { Token: null } },
+            },
+            parameters: { country: "US", dataSets: ["weatherAlerts"], language: "zh-Hans", latitude: 32.115, longitude: 118.814 },
+            enviroments: {
+                country: "US",
+                colorfulClouds: {
+                    WeatherAlert: async () => {
+                        thirdPartyRequests++;
+                        return { alerts: [] };
+                    },
+                },
+            },
+        },
+    );
+
+    assert.equal(thirdPartyRequests, 0);
+    assert.deepEqual(new Uint8Array(response.body), originalBytes);
+});
+
 async function withMockedFetch(responseBody, callback) {
     const originalFetch = globalThis.fetch;
     const requested = [];
     globalThis.fetch = async (input, init = {}) => {
         const url = typeof input === "string" ? input : (input?.url ?? String(input));
-        requested.push({ url, headers: new Headers(init.headers ?? input?.headers ?? {}) });
+        requested.push({ url, headers: new Headers(init.headers ?? input?.headers ?? {}), signal: init.signal });
         return new globalThis.Response(JSON.stringify(responseBody), {
             status: 200,
             headers: { "content-type": "application/json" },

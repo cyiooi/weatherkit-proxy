@@ -155,7 +155,8 @@ async function buildWeatherAlertsDetails(url, Settings) {
 
     const language = url.searchParams.get("lang")?.trim() || "zh-CN";
     const country = url.searchParams.get("country")?.trim().toUpperCase() || "CN";
-    const providerName = Settings?.WeatherAlerts?.Provider || "ColorfulClouds";
+    const providerName = WeatherAlerts.ResolveProvider(Settings);
+    if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return null;
     const parameters = { ...coordinates, country, language, version: "v1" };
 
     let extracted;
@@ -169,22 +170,24 @@ async function buildWeatherAlertsDetails(url, Settings) {
             attributionUrl = "https://www.12379.cn/";
             break;
         }
-        case "ColorfulClouds":
-        default: {
-            const provider = new ColorfulClouds(parameters, Settings?.API?.ColorfulClouds?.Token || "Y2FpeXVuX25vdGlmeQ==");
+        case "ColorfulClouds": {
+            const provider = new ColorfulClouds(parameters, Settings.API.ColorfulClouds.Token);
             extracted = await provider.WeatherAlert();
             attributionUrl = "https://www.caiyunapp.com/h5";
             break;
         }
+        default:
+            return null;
     }
 
-    return WeatherAlerts.Build(extracted, {
+    const alerts = WeatherAlerts.Build(extracted, {
         attributionUrl,
         identifier,
         language,
         countryCode: country,
         eventSource: country,
     });
+    return alerts.length ? alerts : null;
 }
 
 async function handleWeatherRequest(c, queryArguments = {}) {

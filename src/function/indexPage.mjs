@@ -630,15 +630,15 @@ export function renderIndex(host, protocol) {
                         <div class="form-group">
                             <label class="form-label" for="caiyunToken">[API] 彩云天气令牌 (Token)</label>
                             <input class="form-input" type="text" id="caiyunToken" placeholder="默认使用内置公共 Token，可自定义填写">
-                            <span class="form-desc">彩云天气 API 令牌。留空则使用内置公共令牌。</span>
+                            <span class="form-desc">彩云天气 API 令牌。留空则普通天气数据使用内置公共令牌；天气预警补全需要自定义 Token 具备 CAP 接口权限。</span>
                         </div>
                     </div>
 
                     <div id="qweatherConfigGroup" style="display: none;">
                         <div class="form-group">
                             <label class="form-label" for="qweatherToken">[API] 和风天气令牌 (Token)</label>
-                            <input class="form-input" type="text" id="qweatherToken" placeholder="必填，输入和风天气控制台获取的 Key">
-                            <span class="form-desc">和风天气 API 令牌 (Key)</span>
+                            <input class="form-input" type="text" id="qweatherToken" placeholder="可选，留空使用上游内置公共 Key">
+                            <span class="form-desc">和风天气 API 令牌 (Key)。留空使用上游内置公共 Key，自定义 Key 优先。</span>
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="qweatherHost">[API] 和风天气主机 (Host)</label>
@@ -672,11 +672,11 @@ export function renderIndex(host, protocol) {
                         <div class="form-group">
                             <label class="form-label" for="weatherAlertsProvider">[天气预警] 补全数据源</label>
                             <select class="form-select" id="weatherAlertsProvider">
-                                <option value="ColorfulClouds" selected>彩云天气</option>
+                                <option value="QWeather" selected>和风天气（默认，内置公共 Key）</option>
                                 <option value="WeatherKit">WeatherKit（不补全）</option>
-                                <option value="QWeather">和风天气</option>
+                                <option value="ColorfulClouds">彩云天气（需支持 CAP 的 Token）</option>
                             </select>
-                            <span class="form-desc">仅补全国家预警中心已有预警的缺失或通用字段与详情，不新增预警，并保留 Apple 已有具体字段和单条链接。</span>
+                            <span class="form-desc">仅补全国家预警中心已有预警的缺失或通用字段与详情，不新增预警。和风可使用内置公共 Key；彩云需 CAP Token。第三方不可用时保留 Apple 原始预警。</span>
                         </div>
 
                         <div class="form-group">
@@ -977,7 +977,7 @@ export function renderIndex(host, protocol) {
                     qweatherHost: "",
                     weatherProvider: "ColorfulClouds",
                     nextHourProvider: "ColorfulClouds",
-                    weatherAlertsProvider: "ColorfulClouds",
+                    weatherAlertsProvider: "QWeather",
                     aqiStandard: "CN",
                     aqiSource: "Caiyun",
                     forceCalculate: false,
@@ -1203,7 +1203,7 @@ export function renderIndex(host, protocol) {
                     },
                     EdgeCache: false,
                     Weather: { Provider: "ColorfulClouds", ReplaceDaily: true, ReplaceHourly: true },
-                    WeatherAlerts: { Provider: "ColorfulClouds" },
+                    WeatherAlerts: { Provider: presetData.Caiyun.caiyunToken ? "ColorfulClouds" : "QWeather" },
                     NextHour: { Provider: "ColorfulClouds" },
                     AirQuality: {
                         Current: {
@@ -1314,7 +1314,7 @@ export function renderIndex(host, protocol) {
                                 presetData.Advanced.qweatherToken ||
                                 presetData.Advanced.weatherProvider !== "ColorfulClouds" ||
                                 presetData.Advanced.nextHourProvider !== "ColorfulClouds" ||
-                                presetData.Advanced.weatherAlertsProvider !== "ColorfulClouds" ||
+                                presetData.Advanced.weatherAlertsProvider !== "QWeather" ||
                                 presetData.Advanced.aqiStandard !== "CN" ||
                                 presetData.Advanced.aqiSource !== "Caiyun" ||
                                 presetData.Advanced.forceCalculate === true ||
@@ -1583,7 +1583,7 @@ export function renderIndex(host, protocol) {
             presetData.Advanced.qweatherHost = qHost;
             presetData.Advanced.weatherProvider = decoded.Weather?.Provider || "ColorfulClouds";
             presetData.Advanced.nextHourProvider = decoded.NextHour?.Provider || "ColorfulClouds";
-            presetData.Advanced.weatherAlertsProvider = decoded.WeatherAlerts?.Provider || "ColorfulClouds";
+            presetData.Advanced.weatherAlertsProvider = decoded.WeatherAlerts?.Provider || "QWeather";
             const aqiParsed = parseAqiSettings(decoded.AirQuality);
             presetData.Advanced.aqiStandard = aqiParsed.standard;
             presetData.Advanced.aqiSource = aqiParsed.source;
@@ -1610,6 +1610,7 @@ export function renderIndex(host, protocol) {
             // 判断应该属于哪个 Preset
             // 注意：纯彩云/纯和风预设分支下发的配置不含 Yesterday.PollutantsProvider，故此处对其用
             // 「等于预设值 或 缺省」的容错判断（与 isCaiyun 一致），否则预设配置无法往返还原到对应标签。
+            const caiyunWeatherAlertsProvider = cToken ? "ColorfulClouds" : "QWeather";
             const isQWeather = decoded.Weather?.Provider === "QWeather" &&
                                decoded.NextHour?.Provider === "QWeather" &&
                                (decoded.WeatherAlerts?.Provider === "QWeather" || !decoded.WeatherAlerts?.Provider) &&
@@ -1620,7 +1621,7 @@ export function renderIndex(host, protocol) {
             
             const isCaiyun = (decoded.Weather?.Provider === "ColorfulClouds" || !decoded.Weather?.Provider) && 
                              (decoded.NextHour?.Provider === "ColorfulClouds" || !decoded.NextHour?.Provider) && 
-                             (decoded.WeatherAlerts?.Provider === "ColorfulClouds" || !decoded.WeatherAlerts?.Provider) &&
+                             (decoded.WeatherAlerts?.Provider === caiyunWeatherAlertsProvider || !decoded.WeatherAlerts?.Provider) &&
                              (decoded.AirQuality?.Current?.Index?.Provider === "ColorfulCloudsCN" || !decoded.AirQuality?.Current?.Index?.Provider) && 
                              (decoded.AirQuality?.Comparison?.Yesterday?.IndexProvider === "ColorfulCloudsCN" || !decoded.AirQuality?.Comparison?.Yesterday?.IndexProvider) && 
                              (decoded.AirQuality?.Current?.Pollutants?.Provider === "ColorfulClouds" || !decoded.AirQuality?.Current?.Pollutants?.Provider) && 

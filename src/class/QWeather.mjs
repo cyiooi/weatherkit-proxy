@@ -3,13 +3,16 @@ import { Console, fetch } from "../utils/index.mjs";
 import ForecastNextHour from "./ForecastNextHour.mjs";
 import Weather from "./Weather.mjs";
 
+// Public fallback used by NSRingo/WeatherKit v3.2.0. A user-supplied Key always wins.
+export const QWEATHER_PUBLIC_TOKEN = "bdd98ec1d87747f3a2e8b1741a5af796";
+
 export default class QWeather {
     constructor(parameters, token, host = "devapi.qweather.com") {
         this.Name = "QWeather";
         this.Version = "5.1.0";
         Console.debug(`🟧 ${this.Name} v${this.Version}`);
         this.endpoint = `https://${host || "devapi.qweather.com"}`;
-        this.headers = { "X-QW-Api-Key": token };
+        this.headers = { "X-QW-Api-Key": String(token ?? "").trim() || QWEATHER_PUBLIC_TOKEN };
         this.version = parameters.version;
         const language = String(parameters.language ?? "")
             .trim()
@@ -219,6 +222,7 @@ export default class QWeather {
                 ...this.headers,
                 Accept: "application/json",
             },
+            timeout: 3,
         };
 
         try {
@@ -231,7 +235,8 @@ export default class QWeather {
             if (!body?.metadata || !Array.isArray(body?.alerts)) throw Error(JSON.stringify(body?.error ?? body?.code ?? body));
             return this.#CreateWeatherAlerts(body);
         } catch (error) {
-            Console.error(`WeatherAlert: ${error}`);
+            const reason = error?.cause?.code || error?.cause?.message || error?.message || String(error);
+            Console.warn("WeatherAlert", `unavailable: ${reason}`);
             return failedWeatherAlerts;
         } finally {
             Console.debug("✅ WeatherAlert");
