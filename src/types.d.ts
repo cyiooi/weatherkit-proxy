@@ -307,7 +307,7 @@ export interface Settings {
              *
              * 和风天气 API 使用的主机名
              *
-             * @defaultValue "devapi.qweather.com"
+             * @defaultValue "api.qweather.com"
              */
             Host?: string;
             /**

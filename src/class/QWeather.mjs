@@ -8,11 +8,11 @@ export const QWEATHER_PUBLIC_TOKEN = "bdd98ec1d87747f3a2e8b1741a5af796";
 export const QWEATHER_ALERT_TIMEOUT_SECONDS = 10;
 
 export default class QWeather {
-    constructor(parameters, token, host = "devapi.qweather.com") {
+    constructor(parameters, token, host = "api.qweather.com") {
         this.Name = "QWeather";
         this.Version = "5.1.0";
         Console.debug(`🟧 ${this.Name} v${this.Version}`);
-        this.endpoint = `https://${host || "devapi.qweather.com"}`;
+        this.endpoint = `https://${host || "api.qweather.com"}`;
         this.headers = { "X-QW-Api-Key": String(token ?? "").trim() || QWEATHER_PUBLIC_TOKEN };
         this.version = parameters.version;
         const language = String(parameters.language ?? "")

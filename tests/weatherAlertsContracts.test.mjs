@@ -78,10 +78,10 @@ test("weatherAlerts 只接管合法的明文经纬度标识", () => {
     }
 });
 
-test("天气预警默认不补全，显式选择 QWeather 时可使用公共 Key", () => {
-    assert.equal(WeatherAlerts.ResolveProvider({}), "WeatherKit");
+test("天气预警默认启用 QWeather，非法配置仍安全回退 WeatherKit", () => {
+    assert.equal(WeatherAlerts.ResolveProvider({}), "QWeather");
     assert.equal(WeatherAlerts.ResolveProvider({ WeatherAlerts: { Provider: "unknown" } }), "WeatherKit");
-    assert.equal(WeatherAlerts.CanUseProvider({}), false);
+    assert.equal(WeatherAlerts.CanUseProvider({}), true);
     assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "ColorfulClouds" }, API: { ColorfulClouds: { Token: null } } }), false);
     assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "ColorfulClouds" }, API: { ColorfulClouds: { Token: "  " } } }), false);
     assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "QWeather" }, API: { QWeather: { Token: null } } }), true);
@@ -97,6 +97,7 @@ test("和风 Token 为空时使用上游公共 Key", async () => {
         await withMockedFetch(QWEATHER_ALERT_API, async requested => {
             await new QWeather({ country: "CN", language: "zh-CN", latitude: "32.115", longitude: "118.814" }, null).WeatherAlert();
             assert.equal(requested.length, 1);
+            assert.equal(requested[0].url, "https://api.qweather.com/weatheralert/v1/current/32.115/118.814?lang=zh-hans");
             assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
         });
     } finally {
@@ -230,21 +231,22 @@ test("v1 weatherAlerts 详情接口按配置返回 Apple 兼容 JSON", async () 
     });
 });
 
-test("v1 weatherAlerts 显式启用 QWeather 时使用公共 Key", async () => {
-    const encoded = encodeConfigPayload(JSON.stringify({ WeatherAlerts: { Provider: "QWeather" } }));
+test("v1 weatherAlerts 默认使用 api.qweather.com 与公共 Key", async () => {
     await withMockedFetch(QWEATHER_ALERT_API, async requested => {
-        const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
+        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
         const body = await response.json();
 
         assert.equal(response.status, 200);
         assert.equal(requested.length, 1);
+        assert.equal(requested[0].url, "https://api.qweather.com/weatheralert/v1/current/32.115/118.814?lang=zh-hans");
         assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
         assert.equal(body.length, 1);
         assert.equal(body[0].areaId, "320100");
     });
 });
 
-test("v1 weatherAlerts 默认不请求 QWeather 并透传 Apple 原始详情", async () => {
+test("v1 weatherAlerts 显式选择 WeatherKit 时不请求 QWeather 并透传 Apple 原始详情", async () => {
+    const encoded = encodeConfigPayload(JSON.stringify({ WeatherAlerts: { Provider: "WeatherKit" } }));
     const requested = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async input => {
@@ -257,7 +259,7 @@ test("v1 weatherAlerts 默认不请求 QWeather 并透传 Apple 原始详情", a
     };
 
     try {
-        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
+        const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
         assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
         assert.equal(requested.length, 1);
         assert.match(requested[0], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
@@ -393,7 +395,7 @@ test("预警摘要只补缺失字段，并使用本仓库固定 schema 的枚举
     assert.equal(established.description, "Apple 已有的具体雷暴预警", "具体 Apple 摘要不得被覆盖");
 });
 
-test("v2 weatherAlerts 默认关闭补全时不请求第三方并保留原始字节", async () => {
+test("v2 weatherAlerts 显式关闭补全时不请求第三方并保留原始字节", async () => {
     const originalBytes = createWeatherAlertRoot("National Early Warning Center");
     const response = await Response(
         {
@@ -409,7 +411,7 @@ test("v2 weatherAlerts 默认关闭补全时不请求第三方并保留原始字
             parameters: { country: "CN", dataSets: ["weatherAlerts"], language: "zh-Hans", latitude: 32.115, longitude: 118.814 },
             enviroments: {
                 country: "CN",
-                qWeather: { WeatherAlert: async () => assert.fail("默认关闭时不应请求和风预警") },
+                qWeather: { WeatherAlert: async () => assert.fail("显式关闭时不应请求和风预警") },
             },
         },
     );

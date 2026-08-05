@@ -13,6 +13,10 @@ export default class WeatherAlerts {
                 return settings.WeatherAlerts.Provider;
             case "WeatherKit":
                 return "WeatherKit";
+            case undefined:
+            case null:
+            case "":
+                return "QWeather";
             default:
                 return "WeatherKit";
         }
