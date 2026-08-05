@@ -645,6 +645,13 @@ export function renderIndex(host, protocol) {
                             <input class="form-input" type="text" id="qweatherHost" placeholder="请填写和风 API 主机名，如 devapi.qweather.com">
                             <span class="form-desc">和风天气 API 使用的主机名</span>
                         </div>
+                        <div class="checkbox-group" id="qweatherWeatherAlertsGroup">
+                            <input class="checkbox-input" type="checkbox" id="qweatherWeatherAlerts">
+                            <label class="checkbox-label" for="qweatherWeatherAlerts">
+                                <strong>[天气预警] 启用和风天气补全</strong><br>
+                                <span class="form-desc" style="margin-top:0.2rem">默认关闭。开启后会在已有国家预警中心预警时请求和风天气补全详情，可能增加天气响应耗时。</span>
+                            </label>
+                        </div>
                     </div>
 
                     <div id="advancedConfigGroup" style="display: none; padding-top: 1rem; border-top: 1px dashed rgba(255, 255, 255, 0.08); margin-top: 1.5rem;">
@@ -672,8 +679,8 @@ export function renderIndex(host, protocol) {
                         <div class="form-group">
                             <label class="form-label" for="weatherAlertsProvider">[天气预警] 补全数据源</label>
                             <select class="form-select" id="weatherAlertsProvider">
-                                <option value="QWeather" selected>和风天气（默认，内置公共 Key）</option>
-                                <option value="WeatherKit">WeatherKit（不补全）</option>
+                                <option value="WeatherKit" selected>WeatherKit（默认，不补全）</option>
+                                <option value="QWeather">和风天气（内置公共 Key）</option>
                                 <option value="ColorfulClouds">彩云天气（需支持 CAP 的 Token）</option>
                             </select>
                             <span class="form-desc">仅补全国家预警中心已有预警的缺失或通用字段与详情，不新增预警。和风可使用内置公共 Key；彩云需 CAP Token。第三方不可用时保留 Apple 原始预警。</span>
@@ -923,6 +930,7 @@ export function renderIndex(host, protocol) {
         const caiyunToken = document.getElementById("caiyunToken");
         const qweatherToken = document.getElementById("qweatherToken");
         const qweatherHost = document.getElementById("qweatherHost");
+        const qweatherWeatherAlerts = document.getElementById("qweatherWeatherAlerts");
         const weatherProvider = document.getElementById("weatherProvider");
         const nextHourProvider = document.getElementById("nextHourProvider");
         const weatherAlertsProvider = document.getElementById("weatherAlertsProvider");
@@ -955,6 +963,7 @@ export function renderIndex(host, protocol) {
         const presetAdvancedBtn = document.getElementById("presetAdvancedBtn");
         const caiyunConfigGroup = document.getElementById("caiyunConfigGroup");
         const qweatherConfigGroup = document.getElementById("qweatherConfigGroup");
+        const qweatherWeatherAlertsGroup = document.getElementById("qweatherWeatherAlertsGroup");
         const advancedConfigGroup = document.getElementById("advancedConfigGroup");
         const saveConfigBtn = document.getElementById("saveConfigBtn");
         const resetConfigBtn = document.getElementById("resetConfigBtn");
@@ -969,7 +978,8 @@ export function renderIndex(host, protocol) {
                 },
                 QWeather: {
                     qweatherToken: "",
-                    qweatherHost: ""
+                    qweatherHost: "",
+                    weatherAlertsEnabled: false
                 },
                 Advanced: {
                     caiyunToken: "",
@@ -977,7 +987,7 @@ export function renderIndex(host, protocol) {
                     qweatherHost: "",
                     weatherProvider: "ColorfulClouds",
                     nextHourProvider: "ColorfulClouds",
-                    weatherAlertsProvider: "QWeather",
+                    weatherAlertsProvider: "WeatherKit",
                     aqiStandard: "CN",
                     aqiSource: "Caiyun",
                     forceCalculate: false,
@@ -1003,6 +1013,7 @@ export function renderIndex(host, protocol) {
             } else if (currentPreset === "QWeather") {
                 presetData.QWeather.qweatherToken = qweatherToken.value.trim();
                 presetData.QWeather.qweatherHost = qweatherHost.value.trim();
+                presetData.QWeather.weatherAlertsEnabled = qweatherWeatherAlerts.checked;
             } else if (currentPreset === "Advanced") {
                 presetData.Advanced.caiyunToken = caiyunToken.value.trim();
                 presetData.Advanced.qweatherToken = qweatherToken.value.trim();
@@ -1047,6 +1058,8 @@ export function renderIndex(host, protocol) {
 
                 qweatherToken.value = presetData.QWeather.qweatherToken;
                 qweatherHost.value = presetData.QWeather.qweatherHost;
+                qweatherWeatherAlerts.checked = presetData.QWeather.weatherAlertsEnabled;
+                qweatherWeatherAlertsGroup.style.display = "flex";
             } else if (currentPreset === "Advanced") {
                 presetAdvancedBtn.classList.add("active");
                 caiyunConfigGroup.style.display = "block";
@@ -1056,6 +1069,7 @@ export function renderIndex(host, protocol) {
                 caiyunToken.value = presetData.Advanced.caiyunToken;
                 qweatherToken.value = presetData.Advanced.qweatherToken;
                 qweatherHost.value = presetData.Advanced.qweatherHost;
+                qweatherWeatherAlertsGroup.style.display = "none";
                 weatherProvider.value = presetData.Advanced.weatherProvider;
                 nextHourProvider.value = presetData.Advanced.nextHourProvider;
                 weatherAlertsProvider.value = presetData.Advanced.weatherAlertsProvider;
@@ -1203,7 +1217,7 @@ export function renderIndex(host, protocol) {
                     },
                     EdgeCache: false,
                     Weather: { Provider: "ColorfulClouds", ReplaceDaily: true, ReplaceHourly: true },
-                    WeatherAlerts: { Provider: presetData.Caiyun.caiyunToken ? "ColorfulClouds" : "QWeather" },
+                    WeatherAlerts: { Provider: presetData.Caiyun.caiyunToken ? "ColorfulClouds" : "WeatherKit" },
                     NextHour: { Provider: "ColorfulClouds" },
                     AirQuality: {
                         Current: {
@@ -1226,7 +1240,7 @@ export function renderIndex(host, protocol) {
                     },
                     EdgeCache: false,
                     Weather: { Provider: "QWeather", ReplaceDaily: true, ReplaceHourly: true },
-                    WeatherAlerts: { Provider: "QWeather" },
+                    WeatherAlerts: { Provider: presetData.QWeather.weatherAlertsEnabled ? "QWeather" : "WeatherKit" },
                     NextHour: { Provider: "QWeather" },
                     AirQuality: {
                         Current: {
@@ -1304,7 +1318,8 @@ export function renderIndex(host, protocol) {
             if (currentPreset === "Caiyun") {
                 hasCustomData = !!presetData.Caiyun.caiyunToken;
             } else if (currentPreset === "QWeather") {
-                hasCustomData = !!presetData.QWeather.qweatherToken || !!presetData.QWeather.qweatherHost;
+                // 纯和风预设本身已偏离默认彩云配置，即使 Token、Host 与预警开关均为空也必须编码。
+                hasCustomData = true;
             } else {
                 const std = AQI_STANDARDS[presetData.Advanced.aqiStandard] || AQI_STANDARDS.CN;
                 const isDefaultIndexReplace = presetData.Advanced.indexReplace === std.recIndexReplace;
@@ -1314,7 +1329,7 @@ export function renderIndex(host, protocol) {
                                 presetData.Advanced.qweatherToken ||
                                 presetData.Advanced.weatherProvider !== "ColorfulClouds" ||
                                 presetData.Advanced.nextHourProvider !== "ColorfulClouds" ||
-                                presetData.Advanced.weatherAlertsProvider !== "QWeather" ||
+                                presetData.Advanced.weatherAlertsProvider !== "WeatherKit" ||
                                 presetData.Advanced.aqiStandard !== "CN" ||
                                 presetData.Advanced.aqiSource !== "Caiyun" ||
                                 presetData.Advanced.forceCalculate === true ||
@@ -1548,7 +1563,7 @@ export function renderIndex(host, protocol) {
 
         // 监听所有输入框和下拉框的变化，并及时同步到 presetData
         const inputs = [
-            caiyunToken, qweatherToken, qweatherHost, weatherProvider, nextHourProvider, weatherAlertsProvider,
+            caiyunToken, qweatherToken, qweatherHost, qweatherWeatherAlerts, weatherProvider, nextHourProvider, weatherAlertsProvider,
             aqiStandard, aqiSource, forceCalculate,
             forceCNPrimaryPollutants, allowOverRange, replaceWhenCurrentChange,
             weatherReplace, pollutantsUnitsMode,
@@ -1576,6 +1591,7 @@ export function renderIndex(host, protocol) {
             presetData.Caiyun.caiyunToken = cToken;
             presetData.QWeather.qweatherToken = qToken;
             presetData.QWeather.qweatherHost = qHost;
+            presetData.QWeather.weatherAlertsEnabled = decoded.WeatherAlerts?.Provider === "QWeather";
 
             // 写入 Advanced 配置缓存
             presetData.Advanced.caiyunToken = cToken;
@@ -1583,7 +1599,7 @@ export function renderIndex(host, protocol) {
             presetData.Advanced.qweatherHost = qHost;
             presetData.Advanced.weatherProvider = decoded.Weather?.Provider || "ColorfulClouds";
             presetData.Advanced.nextHourProvider = decoded.NextHour?.Provider || "ColorfulClouds";
-            presetData.Advanced.weatherAlertsProvider = decoded.WeatherAlerts?.Provider || "QWeather";
+            presetData.Advanced.weatherAlertsProvider = decoded.WeatherAlerts?.Provider || "WeatherKit";
             const aqiParsed = parseAqiSettings(decoded.AirQuality);
             presetData.Advanced.aqiStandard = aqiParsed.standard;
             presetData.Advanced.aqiSource = aqiParsed.source;
@@ -1610,10 +1626,10 @@ export function renderIndex(host, protocol) {
             // 判断应该属于哪个 Preset
             // 注意：纯彩云/纯和风预设分支下发的配置不含 Yesterday.PollutantsProvider，故此处对其用
             // 「等于预设值 或 缺省」的容错判断（与 isCaiyun 一致），否则预设配置无法往返还原到对应标签。
-            const caiyunWeatherAlertsProvider = cToken ? "ColorfulClouds" : "QWeather";
+            const caiyunWeatherAlertsProvider = cToken ? "ColorfulClouds" : "WeatherKit";
             const isQWeather = decoded.Weather?.Provider === "QWeather" &&
                                decoded.NextHour?.Provider === "QWeather" &&
-                               (decoded.WeatherAlerts?.Provider === "QWeather" || !decoded.WeatherAlerts?.Provider) &&
+                               ["QWeather", "WeatherKit"].includes(decoded.WeatherAlerts?.Provider || "WeatherKit") &&
                                decoded.AirQuality?.Current?.Index?.Provider === "QWeather" &&
                                decoded.AirQuality?.Comparison?.Yesterday?.IndexProvider === "QWeather" &&
                                decoded.AirQuality?.Current?.Pollutants?.Provider === "QWeather" &&

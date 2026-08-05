@@ -12,6 +12,7 @@
         { "src": "/p/(.*)", "dest": "src/Vercel.js" },
         { "src": "/api/v1/availability/(.*)", "dest": "src/Vercel.js" },
         { "src": "/api/v1/airQualityScale/(.*)", "dest": "src/Vercel.js" },
+        { "src": "/api/v1/weatherAlerts", "dest": "src/Vercel.js" },
         { "src": "/api/v2/weather/(.*)", "dest": "src/Vercel.js" },
         { "src": "/(.*)", "status": 404 }
     ]

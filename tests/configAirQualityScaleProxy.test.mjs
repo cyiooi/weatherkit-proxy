@@ -33,16 +33,19 @@ test("配置页默认代理 airQualityScale，并启用逐日、逐小时替换"
     }
     assert.match(html, /id="resetConfigBtn"/, "配置页应提供恢复默认配置按钮");
     assert.match(html, /id="domainPolicy"[^>]*value="DIRECT"/, "部署域名分流默认应为 DIRECT");
+    const qweatherAlertsInput = html.match(/<input[^>]*id="qweatherWeatherAlerts"[^>]*>/)?.[0];
+    assert.ok(qweatherAlertsInput, "纯和风配置应提供天气预警补全开关");
+    assert.doesNotMatch(qweatherAlertsInput, /\bchecked\b/, "和风天气预警补全默认应关闭");
     assert.match(html, /id="weatherAlertsProvider"/, "配置页应提供天气预警补全数据源");
     const weatherAlertsSelect = html.match(/<select[^>]*id="weatherAlertsProvider"[^>]*>.*?<\/select>/)?.[0];
     assert.ok(weatherAlertsSelect, "配置页应包含天气预警数据源选项");
-    assert.match(weatherAlertsSelect, /<option value="QWeather" selected>/, "天气预警默认应使用 QWeather");
+    assert.match(weatherAlertsSelect, /<option value="WeatherKit" selected>/, "天气预警补全默认应关闭");
     assert.match(html, /WeatherAlerts: \{ Provider: presetData\.Advanced\.weatherAlertsProvider \}/, "高级配置应保存天气预警数据源");
-    assert.match(html, /WeatherAlerts: \{ Provider: presetData\.Caiyun\.caiyunToken \? "ColorfulClouds" : "QWeather" \}/, "纯彩云配置无 CAP Token 时应回退 QWeather");
-    assert.match(html, /WeatherAlerts: \{ Provider: "QWeather" \}/, "纯和风配置无自定义 Token 时仍应使用公共 Key");
+    assert.match(html, /WeatherAlerts: \{ Provider: presetData\.Caiyun\.caiyunToken \? "ColorfulClouds" : "WeatherKit" \}/, "纯彩云配置无 CAP Token 时不应启用第三方预警补全");
+    assert.match(html, /WeatherAlerts: \{ Provider: presetData\.QWeather\.weatherAlertsEnabled \? "QWeather" : "WeatherKit" \}/, "纯和风配置应由显式开关控制预警补全");
     assert.equal(database.WeatherKit.Settings.Weather.ReplaceDaily, true);
     assert.equal(database.WeatherKit.Settings.Weather.ReplaceHourly, true);
-    assert.equal(database.WeatherKit.Settings.WeatherAlerts.Provider, "QWeather");
+    assert.equal(database.WeatherKit.Settings.WeatherAlerts.Provider, "WeatherKit");
 });
 
 test("新配置载荷只使用小写 Base32，并保留大小写敏感配置值", () => {

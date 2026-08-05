@@ -14,7 +14,7 @@ export default class WeatherAlerts {
             case "WeatherKit":
                 return "WeatherKit";
             default:
-                return "QWeather";
+                return "WeatherKit";
         }
     }
 
