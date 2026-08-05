@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Builder, ByteBuffer } from "flatbuffers";
 import ColorfulClouds from "../src/class/ColorfulClouds.mjs";
-import QWeather, { QWEATHER_PUBLIC_TOKEN } from "../src/class/QWeather.mjs";
+import QWeather, { QWEATHER_ALERT_TIMEOUT_SECONDS, QWEATHER_PUBLIC_TOKEN } from "../src/class/QWeather.mjs";
 import WeatherAlerts from "../src/class/WeatherAlerts.mjs";
 import WeatherKit2 from "../src/class/WeatherKit2.mjs";
 import { encodeConfigPayload } from "../src/function/configPayload.mjs";
@@ -77,11 +77,20 @@ test("天气预警默认使用 QWeather 公共 Key，彩云 CAP 仍要求显式 
 
 test("和风 Token 为空时使用上游公共 Key", async () => {
     assert.equal(QWEATHER_PUBLIC_TOKEN, "bdd98ec1d87747f3a2e8b1741a5af796");
-    await withMockedFetch(QWEATHER_ALERT_API, async requested => {
-        await new QWeather({ country: "CN", language: "zh-CN", latitude: "32.115", longitude: "118.814" }, null).WeatherAlert();
-        assert.equal(requested.length, 1);
-        assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
-    });
+    assert.equal(QWEATHER_ALERT_TIMEOUT_SECONDS, 10);
+    const infoLogs = [];
+    const originalConsoleInfo = console.info;
+    console.info = (...messages) => infoLogs.push(messages.join(" "));
+    try {
+        await withMockedFetch(QWEATHER_ALERT_API, async requested => {
+            await new QWeather({ country: "CN", language: "zh-CN", latitude: "32.115", longitude: "118.814" }, null).WeatherAlert();
+            assert.equal(requested.length, 1);
+            assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
+        });
+    } finally {
+        console.info = originalConsoleInfo;
+    }
+    assert.ok(infoLogs.some(log => /^WeatherAlert QWeather requestDuration: \d+ms timeout: 10s$/.test(log)), "应记录和风预警请求耗时与超时上限");
 });
 
 test("和风预警 API 使用所选语言、Host 与 Token，并标准化预警字段", async () => {

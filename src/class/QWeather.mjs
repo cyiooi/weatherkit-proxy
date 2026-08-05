@@ -5,6 +5,7 @@ import Weather from "./Weather.mjs";
 
 // Public fallback used by NSRingo/WeatherKit v3.2.0. A user-supplied Key always wins.
 export const QWEATHER_PUBLIC_TOKEN = "bdd98ec1d87747f3a2e8b1741a5af796";
+export const QWEATHER_ALERT_TIMEOUT_SECONDS = 10;
 
 export default class QWeather {
     constructor(parameters, token, host = "devapi.qweather.com") {
@@ -222,8 +223,9 @@ export default class QWeather {
                 ...this.headers,
                 Accept: "application/json",
             },
-            timeout: 3,
+            timeout: QWEATHER_ALERT_TIMEOUT_SECONDS,
         };
+        const requestStartedAt = Date.now();
 
         try {
             const response = await fetch(request);
@@ -239,6 +241,7 @@ export default class QWeather {
             Console.warn("WeatherAlert", `unavailable: ${reason}`);
             return failedWeatherAlerts;
         } finally {
+            Console.info("WeatherAlert", `QWeather requestDuration: ${Date.now() - requestStartedAt}ms`, `timeout: ${QWEATHER_ALERT_TIMEOUT_SECONDS}s`);
             Console.debug("✅ WeatherAlert");
         }
     }
