@@ -8,10 +8,38 @@ export default class QWeather {
         this.Name = "QWeather";
         this.Version = "5.1.0";
         Console.debug(`🟧 ${this.Name} v${this.Version}`);
-        this.endpoint = `https://${host}`;
+        this.endpoint = `https://${host || "devapi.qweather.com"}`;
         this.headers = { "X-QW-Api-Key": token };
         this.version = parameters.version;
-        this.language = parameters.language;
+        const language = String(parameters.language ?? "")
+            .trim()
+            .toLowerCase();
+        switch (language) {
+            case "":
+                this.language = "zh";
+                break;
+            case "zh-cn":
+            case "zh-sg":
+            case "zh-hans-cn":
+                this.language = "zh-hans";
+                break;
+            case "zh-hant-hk":
+            case "zh-hant-mo":
+            case "zh-hant-tw":
+            case "zh-hk":
+            case "zh-mo":
+            case "zh-tw":
+                this.language = "zh-hant";
+                break;
+            case "en-au":
+            case "en-ca":
+            case "en-gb":
+            case "en-us":
+                this.language = "en";
+                break;
+            default:
+                this.language = language;
+        }
         this.latitude = parameters.latitude;
         this.longitude = parameters.longitude;
         this.country = parameters.country;
@@ -175,6 +203,39 @@ export default class QWeather {
             Console.debug("✅ GeoAPI");
         }
         return metadata;
+    }
+
+    /** Fetch and normalize QWeather's current severe-weather alerts. */
+    async WeatherAlert() {
+        Console.debug("☑️ WeatherAlert");
+        const failedWeatherAlerts = {
+            alerts: [],
+            areaName: "",
+            source: "国家预警信息发布中心",
+        };
+        const request = {
+            url: `${this.endpoint}/weatheralert/v1/current/${this.latitude}/${this.longitude}?lang=${this.language}`,
+            headers: {
+                ...this.headers,
+                Accept: "application/json",
+            },
+        };
+
+        try {
+            const response = await fetch(request);
+            const body = JSON.parse(response?.body ?? "{}");
+            if (response?.ok === false) {
+                Console.warn("WeatherAlert", `upstreamStatus: ${response.statusCode ?? response.status}`);
+                return failedWeatherAlerts;
+            }
+            if (!body?.metadata || !Array.isArray(body?.alerts)) throw Error(JSON.stringify(body?.error ?? body?.code ?? body));
+            return this.#CreateWeatherAlerts(body);
+        } catch (error) {
+            Console.error(`WeatherAlert: ${error}`);
+            return failedWeatherAlerts;
+        } finally {
+            Console.debug("✅ WeatherAlert");
+        }
     }
 
     async WeatherNow() {
@@ -887,6 +948,126 @@ export default class QWeather {
             primaryPollutant: this.#Config.Pollutants[historicalAir.airHourly[hour].primary] || "NOT_AVAILABLE",
             scale: AirQuality.ToWeatherKitScale(AirQuality.Config.Scales.HJ6332012.weatherKitScale),
         };
+    }
+
+    #CreateWeatherAlerts(body) {
+        const alerts = Array.isArray(body?.alerts) ? body.alerts : [];
+        const attributions = Array.isArray(body?.metadata?.attributions) ? body.metadata.attributions : [];
+        const convertedAlerts = alerts.map(alert => this.#CreateWeatherAlert(alert)).filter(Boolean);
+        const attributionSource = attributions.find(item => item && !/延迟|过时|disclaimer|delayed|outdated/i.test(item)) || "国家预警信息发布中心";
+        return {
+            alerts: convertedAlerts,
+            areaName: convertedAlerts.find(alert => alert?.areaName)?.areaName ?? "",
+            source: convertedAlerts.find(alert => alert?.source)?.source || attributionSource,
+        };
+    }
+
+    #CreateWeatherAlert(alert) {
+        const issuedTime = this.#DateISOString(alert?.issuedTime || alert?.effectiveTime);
+        if (!issuedTime) return undefined;
+        const effectiveTime = this.#DateISOString(alert?.effectiveTime) || issuedTime;
+        const expireTime = this.#DateISOString(alert?.expiresTime || alert?.expireTime);
+        const eventOnsetTime = this.#DateISOString(alert?.eventOnsetTime || alert?.onsetTime || alert?.effectiveTime) || effectiveTime;
+        const eventEndTime = this.#DateISOString(alert?.eventEndTime || alert?.endTime || alert?.expiresTime || alert?.expireTime);
+        const guidelines = this.#SplitWeatherAlertGuidelines(alert?.instruction ?? alert?.instructions);
+        const description = this.#NormalizeWeatherAlertTitle(alert?.headline || alert?.eventType?.name || alert?.description);
+        const message = String(alert?.description ?? "").trim() || String(alert?.headline ?? description ?? "").trim();
+        const source = String(alert?.senderName ?? "").trim() || this.#ExtractWeatherAlertIssuer(alert?.headline || alert?.description);
+        const areaId = String(alert?.areaId ?? alert?.areaCode ?? "").trim();
+        const areaName = String(alert?.areaName ?? "").trim();
+        const phenomenon = String(alert?.eventType?.name ?? "").trim();
+        const token = String(alert?.token ?? alert?.eventType?.code ?? alert?.icon ?? "").trim();
+        const importance = this.#NormalizeWeatherAlertImportance(alert?.importance);
+        const significance = this.#NormalizeWeatherAlertSignificance(alert?.significance);
+
+        return {
+            ...(areaId ? { areaId } : {}),
+            ...(areaName ? { areaName } : {}),
+            certainty: this.#NormalizeWeatherAlertCertainty(alert?.certainty),
+            description,
+            effectiveTime,
+            ...(eventEndTime ? { eventEndTime } : {}),
+            eventOnsetTime,
+            ...(expireTime ? { expireTime } : {}),
+            guidelines,
+            identifier: alert?.id,
+            ...(importance ? { importance } : {}),
+            issuedTime,
+            message,
+            ...(phenomenon ? { phenomenon } : {}),
+            responses: Array.isArray(alert?.responseTypes) ? alert.responseTypes.map(response => String(response ?? "").trim()).filter(Boolean) : [],
+            reportedAt: issuedTime,
+            ...(significance ? { significance } : {}),
+            ...(source ? { source } : {}),
+            severity: this.#NormalizeWeatherAlertSeverity(alert?.severity),
+            standard: "",
+            ...(token ? { token } : {}),
+            urgency: this.#NormalizeWeatherAlertUrgency(alert?.urgency),
+        };
+    }
+
+    #DateISOString(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+    }
+
+    #NormalizeWeatherAlertSeverity(severity) {
+        const normalized = String(severity ?? "")
+            .trim()
+            .toLowerCase();
+        return ["extreme", "severe", "moderate", "minor"].includes(normalized) ? normalized : "unknown";
+    }
+
+    #NormalizeWeatherAlertCertainty(certainty) {
+        const normalized = String(certainty ?? "")
+            .trim()
+            .toLowerCase();
+        return ["observed", "likely", "possible", "unlikely", "unknown"].includes(normalized) ? normalized : "unknown";
+    }
+
+    #NormalizeWeatherAlertImportance(importance) {
+        const normalized = String(importance ?? "")
+            .trim()
+            .toLowerCase();
+        return ["high", "normal", "low"].includes(normalized) ? normalized : "";
+    }
+
+    #NormalizeWeatherAlertSignificance(significance) {
+        const normalized = String(significance ?? "")
+            .trim()
+            .toLowerCase();
+        return ["advisory", "watch", "warning", "statement", "emergency", "unknown"].includes(normalized) ? normalized : "";
+    }
+
+    #NormalizeWeatherAlertUrgency(urgency) {
+        const normalized = String(urgency ?? "")
+            .trim()
+            .toLowerCase();
+        return ["immediate", "expected", "future", "past", "unknown"].includes(normalized) ? normalized : "unknown";
+    }
+
+    #NormalizeWeatherAlertTitle(description) {
+        const title = String(description ?? "").trim();
+        const chinese = title.match(/^.+?发布\s*[:：]?\s*(.+)$/);
+        if (chinese?.[1]) return chinese[1].trim();
+        const english = title.match(/^.+?\s+(?:issues?|issued)\s*[:：]?\s*(.+)$/i);
+        return english?.[1]?.trim() || title;
+    }
+
+    #ExtractWeatherAlertIssuer(description) {
+        const title = String(description ?? "").trim();
+        const chinese = title.match(/^(.+?)发布\s*[:：]?\s*(.+)$/);
+        if (chinese?.[1]) return chinese[1].trim();
+        const english = title.match(/^(.+?)\s+(?:issues?|issued)\s*[:：]?\s*(.+)$/i);
+        return english?.[1]?.trim() || "";
+    }
+
+    #SplitWeatherAlertGuidelines(instruction) {
+        return String(instruction ?? "")
+            .split(/\r?\n/)
+            .map(line => line.replace(/^\s*\d+[.、]\s*/, "").trim())
+            .filter(Boolean);
     }
 
     #ConvertTimeStamp(fxDate, time) {

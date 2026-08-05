@@ -4,8 +4,8 @@ import { Builder, ByteBuffer } from "flatbuffers";
 import WeatherKit2 from "../src/class/WeatherKit2.mjs";
 import { Weather } from "../src/proto/apple/wk2.js";
 
-const injectableDataSets = ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour"];
-const unrelatedKnownDataSets = ["news", "weatherAlerts", "weatherChanges", "historicalComparisons", "locationInfo"];
+const injectableDataSets = ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "weatherAlerts"];
+const unrelatedKnownDataSets = ["news", "weatherChanges", "historicalComparisons", "locationInfo"];
 
 test("selected root decode only opens injectable products", () => {
     const sourceBytes = createWeatherRoot([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);

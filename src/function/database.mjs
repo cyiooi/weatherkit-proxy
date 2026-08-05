@@ -2,8 +2,9 @@ export default {
     WeatherKit: {
         Settings: {
             // 只有代理会修改的产品允许被配置关闭；其余 Apple 数据集必须始终透传。
-            DataSets: ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour"],
+            DataSets: ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "weatherAlerts"],
             Weather: { Replace: ["CN"], ReplaceDaily: true, ReplaceHourly: true, Provider: "ColorfulClouds" },
+            WeatherAlerts: { Provider: "ColorfulClouds" },
             NextHour: { Provider: "ColorfulClouds" },
             AirQuality: {
                 Current: { Pollutants: { Provider: "ColorfulClouds", Units: { Replace: [], Mode: "Scale" } }, Index: { Replace: ["HJ6332012"], Provider: "ColorfulCloudsCN", ForceCNPrimaryPollutants: false } },

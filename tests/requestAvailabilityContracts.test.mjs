@@ -110,7 +110,7 @@ test("dataset switches only remove known injectable products", () => {
     const enabled = ["airQuality", "currentWeather"];
 
     assert.deepEqual(filterWeatherKitDataSets(requested, enabled, database.WeatherKit.Settings.DataSets), ["airQuality", "news", "forecastPrecipitation", "currentWeather"]);
-    assert.deepEqual(database.WeatherKit.Settings.DataSets, ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour"]);
+    assert.deepEqual(database.WeatherKit.Settings.DataSets, ["airQuality", "currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "weatherAlerts"]);
 });
 
 test("Hono 转发层保留未来数据集并移除已禁用的可注入产品", async () => {

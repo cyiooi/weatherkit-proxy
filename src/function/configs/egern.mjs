@@ -7,6 +7,7 @@ description: |-
   2.按配置替换空气质量数据
   3.按配置补充下一小时降水数据
   4.按配置融合天气数据
+  5.按配置补全天气预警摘要与详情
 author: meme
 homepage: https://github.com/meme-lau/weatherkit-proxy
 icon: https://raw.githubusercontent.com/meme-lau/weatherkit-proxy/main/assets/weatherkit-proxy.svg
@@ -190,6 +191,9 @@ url_rewrites:
 # __AIR_QUALITY_SCALE_PROXY_END__
 - match: ^https?://weatherkit.apple.com/api/v2/weather/
   location: https://__HOST__/api/v2/weather/
+  status_code: 307
+- match: ^https?://weatherkit.apple.com/api/v1/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$
+  location: https://__HOST__/api/v1/weatherAlerts?$1
   status_code: 307
 mitm:
   hostnames:

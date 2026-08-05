@@ -33,8 +33,11 @@ test("配置页默认代理 airQualityScale，并启用逐日、逐小时替换"
     }
     assert.match(html, /id="resetConfigBtn"/, "配置页应提供恢复默认配置按钮");
     assert.match(html, /id="domainPolicy"[^>]*value="DIRECT"/, "部署域名分流默认应为 DIRECT");
+    assert.match(html, /id="weatherAlertsProvider"/, "配置页应提供天气预警补全数据源");
+    assert.match(html, /WeatherAlerts: \{ Provider: presetData\.Advanced\.weatherAlertsProvider \}/, "高级配置应保存天气预警数据源");
     assert.equal(database.WeatherKit.Settings.Weather.ReplaceDaily, true);
     assert.equal(database.WeatherKit.Settings.Weather.ReplaceHourly, true);
+    assert.equal(database.WeatherKit.Settings.WeatherAlerts.Provider, "ColorfulClouds");
 });
 
 test("新配置载荷只使用小写 Base32，并保留大小写敏感配置值", () => {
@@ -49,10 +52,13 @@ test("新配置载荷只使用小写 Base32，并保留大小写敏感配置值"
     assert.equal(decodeConfigPayload(encoded), json);
 });
 
-test("客户端配置默认代理 airQualityScale", async () => {
+test("客户端配置默认代理 airQualityScale 与坐标型 weatherAlerts", async () => {
     for (const filename of CONFIG_FILES) {
         const content = await downloadConfig(`/conf/${filename}`);
         assert.match(content, /\/api\/v1\/airQualityScale\//, filename);
+        assert.match(content, /\/api\/v1\/weatherAlerts\\?/, filename);
+        assert.match(content, /ids=-\?\[0-9\]/, `${filename} 应限制为坐标型预警标识`);
+        assert.doesNotMatch(content, /ids=\.\{6,\}/, `${filename} 不应接管 Apple 原生预警 UUID`);
         assert.doesNotMatch(content, /__AIR_QUALITY_SCALE_PROXY_/, `${filename} 不应泄露模板标记`);
         assert.match(content, /\/api\/v2\/weather\//, `${filename} 应保留天气代理规则`);
     }

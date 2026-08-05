@@ -41,7 +41,7 @@ export async function fetch(resource, options = {}) {
 
     const isCF = typeof globalThis.caches !== "undefined" && typeof globalThis.caches.default !== "undefined";
     const isGet = methodUpper === "GET" || methodUpper === "HEAD";
-    const isThirdPartyWeather = isGet && (url.includes("api.caiyunapp.com") || url.includes("qweather.com") || url.includes("qweather"));
+    const isThirdPartyWeather = isGet && (url.includes("api.caiyunapp.com") || url.includes("caiyunhub.com") || url.includes("qweather.com") || url.includes("qweather"));
 
     let cacheKey;
     let cache;

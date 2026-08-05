@@ -3,7 +3,7 @@
 // [filter_local] 不支持 AND/OR/PROTOCOL/DST-PORT，故 QUIC/UDP 443 拦截规则无法表达，已省略。
 // url 307 使用 (.*) + $1 捕获组保留原始路径与查询参数（建议导入后真机实测 availability/weather 接口）。
 export default `#!name = WeatherKit-Proxy
-#!desc = 基于 Apache-2.0 许可的 NSRingo/WeatherKit 上游实现进行适配，与 Apple Inc. 无官方关联。支持自行部署至 Cloudflare Workers / Vercel。\\n1.天气响应代理与兼容处理\\n2.按配置替换空气质量数据\\n3.按配置补充下一小时降水数据\\n4.按配置融合天气数据
+#!desc = 基于 Apache-2.0 许可的 NSRingo/WeatherKit 上游实现进行适配，与 Apple Inc. 无官方关联。支持自行部署至 Cloudflare Workers / Vercel。\\n1.天气响应代理与兼容处理\\n2.按配置替换空气质量数据\\n3.按配置补充下一小时降水数据\\n4.按配置融合天气数据\\n5.按配置补全天气预警摘要与详情
 #!author = meme[https://github.com/meme]
 #!homepage = https://github.com/meme-lau/weatherkit-proxy
 #!icon = https://raw.githubusercontent.com/meme-lau/weatherkit-proxy/main/assets/weatherkit-proxy.svg
@@ -26,6 +26,8 @@ host, tether.edge.apple, reject
 # __AIR_QUALITY_SCALE_PROXY_END__
 # 🌤 WeatherKit.api.v2.weather.response
 ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v2\\/weather\\/(.*) url 307 https://__HOST__/api/v2/weather/$1
+# 🌤 WeatherKit.api.v1.weatherAlerts.response
+^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$ url 307 https://__HOST__/api/v1/weatherAlerts?$1
 
 [mitm]
 hostname = weatherkit.apple.com`;

@@ -4,6 +4,7 @@ import AirQualityScale from "../class/AirQualityScale.mjs";
 import ColorfulClouds from "../class/ColorfulClouds.mjs";
 import QWeather from "../class/QWeather.mjs";
 import Weather from "../class/Weather.mjs";
+import WeatherAlerts from "../class/WeatherAlerts.mjs";
 import WeatherKit2 from "../class/WeatherKit2.mjs";
 import buildSettings from "../function/buildSettings.mjs";
 import database from "../function/database.mjs";
@@ -135,7 +136,8 @@ export async function Response($request, $response, context = {}) {
                 case "application/vnd.apple.flatbuffer": {
                     const parameters = preParameters || parseWeatherKitURL(url);
                     const shouldReplace = Settings?.Weather?.Replace?.includes(parameters.country);
-                    if (!shouldReplace) {
+                    const shouldProcessWeatherAlerts = parameters.dataSets?.includes("weatherAlerts") && Settings?.WeatherAlerts?.Provider !== "WeatherKit";
+                    if (!shouldReplace && !shouldProcessWeatherAlerts) {
                         Console.log(`[proxy] 国家 ${parameters.country} 无需替换，直接跳过 FlatBuffer 编解码。`);
                         break;
                     }
@@ -197,6 +199,12 @@ export async function Response($request, $response, context = {}) {
                                                 if (body.forecastNextHour !== originalForecastNextHour) replacementDataSets.add(dataSet);
                                                 break;
                                             }
+                                            case "weatherAlerts": {
+                                                const originalWeatherAlerts = body.weatherAlerts;
+                                                body.weatherAlerts = await InjectWeatherAlerts(body.weatherAlerts, Settings, enviroments, parameters);
+                                                if (body.weatherAlerts !== originalWeatherAlerts) replacementDataSets.add(dataSet);
+                                                break;
+                                            }
                                             default:
                                                 break;
                                         }
@@ -213,7 +221,7 @@ export async function Response($request, $response, context = {}) {
                                 }
 
                                 // 去掉所有 providerLogo（本仓库既定行为）；被剥离 logo 的可注入区段需要重编码以反映改动。
-                                const allSections = ["currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "airQuality"];
+                                const allSections = ["currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "airQuality", "weatherAlerts"];
                                 allSections.forEach(s => {
                                     if (body?.[s]?.metadata?.providerLogo) {
                                         body[s].metadata.providerLogo = undefined;
@@ -436,6 +444,58 @@ async function InjectForecastNextHour(forecastNextHour, Settings, enviroments, p
     }
     Console.debug("✅ InjectForecastNextHour");
     return forecastNextHour;
+}
+
+/**
+ * Complete an existing National Warning Center summary with a configured data
+ * source. The operation is intentionally conservative: it never adds alerts or
+ * replaces established Apple fields, and a failed/empty source leaves Apple
+ * bytes untouched.
+ */
+async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, parameters) {
+    const supportedProviderNames = new Set(["国家预警信息发布中心", "國家預警信息發布中心", "National Early Warning Center"]);
+    if (!weatherAlerts?.metadata || !supportedProviderNames.has(weatherAlerts.metadata.providerName)) return weatherAlerts;
+    if (!Array.isArray(weatherAlerts.alerts) || !weatherAlerts.alerts.length) return weatherAlerts;
+
+    let sourceAlerts;
+    let attributionUrl;
+    const providerName = Settings?.WeatherAlerts?.Provider || "ColorfulClouds";
+    switch (providerName) {
+        case "WeatherKit":
+            return weatherAlerts;
+        case "QWeather":
+            sourceAlerts = await enviroments.qWeather.WeatherAlert();
+            attributionUrl = "https://developer.qweather.com/attribution.html";
+            break;
+        case "ColorfulClouds":
+        default:
+            sourceAlerts = await enviroments.colorfulClouds.WeatherAlert();
+            attributionUrl = "https://www.caiyunapp.com/h5";
+            break;
+    }
+    if (!Array.isArray(sourceAlerts?.alerts) || !sourceAlerts.alerts.length) return weatherAlerts;
+
+    const candidate = {
+        ...weatherAlerts,
+        metadata: { ...weatherAlerts.metadata },
+        alerts: weatherAlerts.alerts.map(alert => ({
+            ...alert,
+            ...(Array.isArray(alert?.responses) ? { responses: [...alert.responses] } : {}),
+        })),
+    };
+    const before = JSON.stringify(candidate.alerts);
+    WeatherAlerts.mergeAlerts(candidate.alerts, sourceAlerts.alerts);
+    if (JSON.stringify(candidate.alerts) === before) return weatherAlerts;
+
+    candidate.metadata.attributionUrl = attributionUrl;
+    // Prefer request coordinates: the pinned schema stores metadata as float32,
+    // whose decoded values can otherwise leak long precision tails into ids.
+    const latitude = parameters.latitude ?? candidate.metadata.latitude;
+    const longitude = parameters.longitude ?? candidate.metadata.longitude;
+    const language = candidate.metadata.language || parameters.language || "zh-CN";
+    const country = parameters.country || "CN";
+    candidate.detailsUrl = `https://weatherkit.apple.com/alertDetails/index.html?ids=${latitude},${longitude}&lang=${encodeURIComponent(language)}&party=${encodeURIComponent(providerName)}&country=${encodeURIComponent(country)}`;
+    return candidate;
 }
 
 /**

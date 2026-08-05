@@ -2,6 +2,7 @@ import { Hono } from "hono/tiny";
 import ColorfulClouds from "./class/ColorfulClouds.mjs";
 import HonoWorkerAdapter from "./class/HonoWorkerAdapter.mjs";
 import QWeather from "./class/QWeather.mjs";
+import WeatherAlerts from "./class/WeatherAlerts.mjs";
 import buildSettings from "./function/buildSettings.mjs";
 import { decodeConfigPayload } from "./function/configPayload.mjs";
 import configs, { renderClientConfig } from "./function/configs/index.mjs";
@@ -28,6 +29,7 @@ const app = new Hono();
 // 方法守卫：仅允许 GET 与 HEAD 请求，其余方法一律返回 405，避免代理接口被写入/删除类方法滥用。
 // 路径白名单守卫：仅放行首页、配置下载与 WeatherKit API 代理路径，其余一律返回 404。
 // 与下方仅注册 app.get 的 catch-all 路由 /:rest{.*} 配合：白名单内路径继续走后续路由，其余在进入路由前即被拦截。
+const WEATHER_ALERTS_PATH = "/api/v1/weatherAlerts";
 const ALLOWED_PATH_PREFIXES = ["/conf/", "/p/", "/api/v1/availability/", "/api/v1/airQualityScale/", "/api/v2/weather/"];
 
 // /p/:configBase64/:rest 路由放行的 WeatherKit 上游子路径前缀（rest 形态，无前导斜杠）。
@@ -37,7 +39,7 @@ const ALLOWED_REST_PREFIXES = ["api/v1/availability/", "api/v1/airQualityScale/"
 // 校验 rest 是否为合法的 WeatherKit 上游子路径，供 /p/ 与裸主机 catch-all 路由共用。
 // /p/<单段> 等不合法形态会从 /p/ 路由滑落到 catch-all，此处一并拦截，避免转发给 Apple。
 function isAllowedWeatherKitRest(rest = "") {
-    return ALLOWED_REST_PREFIXES.some(prefix => rest.startsWith(prefix));
+    return rest === WEATHER_ALERTS_PATH.slice(1) || ALLOWED_REST_PREFIXES.some(prefix => rest.startsWith(prefix));
 }
 
 app.use("*", async (c, next) => {
@@ -46,7 +48,7 @@ app.use("*", async (c, next) => {
         return c.text("Method Not Allowed", 405);
     }
     const { pathname } = new URL(c.req.url);
-    if (pathname === "/" || ALLOWED_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
+    if (pathname === "/" || pathname === WEATHER_ALERTS_PATH || ALLOWED_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
         return next();
     }
     return c.text("Not Found", 404);
@@ -93,7 +95,7 @@ async function handleConfigDownload(c, filename, configParam) {
     }
 
     // 动态替换默认的主机名占位符
-    // __HOST__：携带 base64 配置路径（host/p/<config>），仅 api/v2/weather 等需要逐用户配置的接口使用；
+    // __HOST__：携带 base64 配置路径（host/p/<config>），供 weather 与 weatherAlerts 等逐用户配置接口使用；
     // __PLAIN_HOST__：裸主机（不含配置路径），availability/airQualityScale 等无需配置的接口使用。
     const domainOnly = host.split(":")[0];
     let content = configContent.replaceAll("__PLAIN_HOST__", host);
@@ -146,6 +148,45 @@ function parseQueryArguments(query = {}) {
     return args;
 }
 
+async function buildWeatherAlertsDetails(url, Settings) {
+    const identifier = url.searchParams.get("ids");
+    const coordinates = WeatherAlerts.ParseCoordinateIdentifier(identifier);
+    if (!coordinates) return null;
+
+    const language = url.searchParams.get("lang")?.trim() || "zh-CN";
+    const country = url.searchParams.get("country")?.trim().toUpperCase() || "CN";
+    const providerName = Settings?.WeatherAlerts?.Provider || "ColorfulClouds";
+    const parameters = { ...coordinates, country, language, version: "v1" };
+
+    let extracted;
+    let attributionUrl;
+    switch (providerName) {
+        case "WeatherKit":
+            return null;
+        case "QWeather": {
+            const provider = new QWeather(parameters, Settings?.API?.QWeather?.Token, Settings?.API?.QWeather?.Host);
+            extracted = await provider.WeatherAlert();
+            attributionUrl = "https://www.12379.cn/";
+            break;
+        }
+        case "ColorfulClouds":
+        default: {
+            const provider = new ColorfulClouds(parameters, Settings?.API?.ColorfulClouds?.Token || "Y2FpeXVuX25vdGlmeQ==");
+            extracted = await provider.WeatherAlert();
+            attributionUrl = "https://www.caiyunapp.com/h5";
+            break;
+        }
+    }
+
+    return WeatherAlerts.Build(extracted, {
+        attributionUrl,
+        identifier,
+        language,
+        countryCode: country,
+        eventSource: country,
+    });
+}
+
 async function handleWeatherRequest(c, queryArguments = {}) {
     let executionCtx;
     try {
@@ -171,6 +212,16 @@ async function handleWeatherRequest(c, queryArguments = {}) {
         // 提前解析 URL 参数，用于并发预取第三方数据
         const { Settings, Configs } = buildSettings(database, finalArguments);
         store.Settings = Settings;
+
+        if (url.pathname === WEATHER_ALERTS_PATH) {
+            const weatherAlerts = await buildWeatherAlertsDetails(url, Settings);
+            if (weatherAlerts) {
+                c.header("Access-Control-Allow-Origin", "*");
+                c.header("Cache-Control", "max-age=0");
+                c.header("Content-Type", "application/json; charset=utf-8");
+                return c.body(JSON.stringify(weatherAlerts), 200);
+            }
+        }
 
         // 配置仅能关闭代理会注入的产品；Apple 新增或代理不认识的数据集继续原样请求。
         const requestedDataSets = url.searchParams.get("dataSets")?.split(",");

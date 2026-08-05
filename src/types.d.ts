@@ -56,6 +56,16 @@ export interface Settings {
          */
         Provider?: "WeatherKit" | "ColorfulClouds" | "QWeather";
     };
+    WeatherAlerts?: {
+        /**
+         * [天气预警] 补全数据源
+         *
+         * 只补全国家预警中心已有的 WeatherKit 预警摘要；WeatherKit 表示不补全。
+         *
+         * @defaultValue "ColorfulClouds"
+         */
+        Provider?: "WeatherKit" | "ColorfulClouds" | "QWeather";
+    };
     NextHour?: {
         /**
          * [未来一小时降水强度] 添加范围

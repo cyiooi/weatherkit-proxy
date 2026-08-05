@@ -13,6 +13,7 @@ export default class WeatherKit2 {
         ["forecastDaily", 2],
         ["forecastHourly", 3],
         ["forecastNextHour", 4],
+        ["weatherAlerts", 6],
     ]);
 
     /**
