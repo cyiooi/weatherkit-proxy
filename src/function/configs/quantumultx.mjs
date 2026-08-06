@@ -27,7 +27,7 @@ host, tether.edge.apple, reject
 # 🌤 WeatherKit.api.v2.weather.response
 ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v2\\/weather\\/(.*) url 307 https://__HOST__/api/v2/weather/$1
 # 🌤 WeatherKit.api.v1.weatherAlerts.response
-^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$ url 307 https://__HOST__/api/v1/weatherAlerts?$1
+^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$ url 307 https://__PLAIN_HOST__/api/v1/weatherAlerts?$1
 
 [mitm]
 hostname = weatherkit.apple.com`;

@@ -44,4 +44,4 @@ http:
   - ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/airQualityScale\\/ https://__PLAIN_HOST__/api/v1/airQualityScale/ transparent
 # __AIR_QUALITY_SCALE_PROXY_END__
   - ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v2\\/weather\\/ https://__HOST__/api/v2/weather/ transparent
-  - ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$ https://__HOST__/api/v1/weatherAlerts?$1 transparent`;
+  - ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$ https://__PLAIN_HOST__/api/v1/weatherAlerts?$1 transparent`;
