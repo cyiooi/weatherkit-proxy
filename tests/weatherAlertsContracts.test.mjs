@@ -149,19 +149,18 @@ test("和风预警 API 使用所选语言、Host 与 Token，并标准化预警�
             source: "南京市气象台",
             standard: "",
             token: "1009",
-            urgency: "unknown",
-            warningLevel: "Orange",
+            urgency: "expected",
         });
     });
 });
 
-test("和风预警提取颜色等级，并在严重程度缺失时映射 Apple 等级", async () => {
+test("和风预警提取中国颜色等级，并补全 Apple 严重与紧急程度", async () => {
     const levels = [
-        ["white", "白色", "minor"],
-        ["blue", "蓝色", "minor"],
-        ["yellow", "黄色", "moderate"],
-        ["orange", "橙色", "severe"],
-        ["red", "红色", "extreme"],
+        ["white", "白色", "minor", "future"],
+        ["blue", "蓝色", "minor", "future"],
+        ["yellow", "黄色", "moderate", "future"],
+        ["orange", "橙色", "severe", "expected"],
+        ["red", "红色", "extreme", "immediate"],
     ];
     const responseBody = {
         metadata: { attributions: ["国家预警信息发布中心"] },
@@ -179,9 +178,78 @@ test("和风预警提取颜色等级，并在严重程度缺失时映射 Apple �
     await withMockedFetch(responseBody, async () => {
         const extracted = await new QWeather({ country: "CN", language: "zh-CN", latitude: "32.115", longitude: "118.814" }, "test-token").WeatherAlert();
         assert.deepEqual(
-            extracted.alerts.map(alert => [alert.warningLevel, alert.severity]),
-            levels.map(([, label, severity]) => [label, severity]),
+            extracted.alerts.map(alert => [alert.severity, alert.urgency]),
+            levels.map(([, , severity, urgency]) => [severity, urgency]),
         );
+    });
+});
+
+test("解除预警按已结束处理，全部预警按严重程度排序", async () => {
+    const responseBody = {
+        metadata: { attributions: ["国家预警信息发布中心"] },
+        alerts: [
+            {
+                id: "cancel-blue",
+                issuedTime: "2026-08-10T23:00+08:00",
+                messageType: { code: "cancel" },
+                eventType: { name: "台风", code: "1001" },
+                severity: "minor",
+                color: { code: "blue" },
+                headline: "杭州市萧山区气象台解除台风蓝色预警",
+                description: "杭州市萧山区气象台解除台风蓝色预警。",
+            },
+            ...[
+                ["red-a", "地质灾害气象风险红色预警甲", "extreme", "red"],
+                ["red-b", "地质灾害气象风险红色预警乙", "extreme", "red"],
+                ["yellow", "山洪灾害黄色预警", "moderate", "yellow"],
+                ["orange", "山洪灾害橙色预警", "severe", "orange"],
+            ].map(([id, headline, severity, color]) => ({
+                id,
+                issuedTime: "2026-08-10T22:00+08:00",
+                eventType: { name: headline, code: id },
+                severity,
+                color: { code: color },
+                headline,
+                description: `${headline}。`,
+            })),
+        ],
+    };
+
+    await withMockedFetch(responseBody, async () => {
+        const extracted = await new QWeather({ country: "CN", language: "zh-CN", latitude: "30.2", longitude: "120.2" }, "test-token").WeatherAlert();
+        const built = WeatherAlerts.Build(extracted, {
+            attributionUrl: "https://www.12379.cn/",
+            countryCode: "CN",
+            eventSource: "CN",
+            identifier: "30.2,120.2",
+            language: "zh-CN",
+        });
+
+        assert.deepEqual(
+            built.map(alert => alert.description),
+            ["地质灾害气象风险红色预警甲", "地质灾害气象风险红色预警乙", "山洪灾害橙色预警", "山洪灾害黄色预警", "杭州市萧山区气象台解除台风蓝色预警"],
+        );
+        assert.deepEqual(
+            built.map(alert => alert.precedence),
+            [0, 1, 2, 3, 4],
+        );
+        assert.equal(built.at(-1).urgency, "past");
+        assert.deepEqual(built.at(-1).responses, ["allClear"]);
+
+        const summaries = extracted.alerts.map(alert => ({
+            description: alert.description,
+            responses: ["MONITOR"],
+            severity: alert.severity.toUpperCase(),
+            urgency: "IMMEDIATE",
+        }));
+        WeatherAlerts.mergeAlerts(summaries, extracted.alerts);
+        assert.deepEqual(
+            summaries.map(alert => alert.description),
+            built.map(alert => alert.description),
+            "FlatBuffer 摘要也应保持相同排序",
+        );
+        assert.equal(summaries.at(-1).urgency, "PAST", "解除预警应覆盖旧紧急程度");
+        assert.deepEqual(summaries.at(-1).responses, ["ALLCLEAR"], "解除预警应覆盖旧建议行动");
     });
 });
 
@@ -255,9 +323,9 @@ test("v1 weatherAlerts 详情接口按配置返回 Apple 兼容 JSON", async () 
         assert.equal(body[0].description, "高温橙色预警");
         assert.equal(body[0].attributionURL, "https://www.12379.cn/");
         assert.equal(body[0].importance, "high");
+        assert.equal(body[0].urgency, "expected");
         assert.deepEqual(body[0].responses, ["monitor"]);
         assert.deepEqual(body[0].messages, [
-            { language: "zh-CN", text: "橙色", title: "预警等级" },
             { language: "zh-CN", text: "南京市气象台继续发布高温橙色预警信号，请注意防暑降温。" },
             { language: "zh-CN", text: "有关部门落实防暑降温保障措施。\n尽量避免在高温时段进行户外活动。" },
         ]);

@@ -987,7 +987,9 @@ export default class QWeather {
         const token = String(alert?.token ?? alert?.eventType?.code ?? alert?.icon ?? "").trim();
         const importance = this.#NormalizeWeatherAlertImportance(alert?.importance);
         const significance = this.#NormalizeWeatherAlertSignificance(alert?.significance);
-        const warningLevel = this.#NormalizeWeatherAlertLevel(alert?.color, alert?.headline, alert?.description);
+        const warningColor = this.#NormalizeWeatherAlertColor(alert?.color, alert?.headline, alert?.description);
+        const cancelled = this.#IsCancelledWeatherAlert(alert);
+        const responses = cancelled ? ["allClear"] : Array.isArray(alert?.responseTypes) ? alert.responseTypes.map(response => String(response ?? "").trim()).filter(Boolean) : [];
 
         return {
             ...(areaId ? { areaId } : {}),
@@ -1004,15 +1006,15 @@ export default class QWeather {
             issuedTime,
             message,
             ...(phenomenon ? { phenomenon } : {}),
-            responses: Array.isArray(alert?.responseTypes) ? alert.responseTypes.map(response => String(response ?? "").trim()).filter(Boolean) : [],
+            responses,
             reportedAt: issuedTime,
             ...(significance ? { significance } : {}),
             ...(source ? { source } : {}),
-            severity: this.#NormalizeWeatherAlertSeverity(alert?.severity, warningLevel?.code),
+            severity: this.#NormalizeWeatherAlertSeverity(alert?.severity, warningColor),
             standard: "",
             ...(token ? { token } : {}),
-            urgency: this.#NormalizeWeatherAlertUrgency(alert?.urgency),
-            ...(warningLevel?.label ? { warningLevel: warningLevel.label } : {}),
+            urgency: cancelled ? "past" : this.#NormalizeWeatherAlertUrgency(alert?.urgency, warningColor),
+            ...(cancelled ? { cancelled: true } : {}),
         };
     }
 
@@ -1047,7 +1049,7 @@ export default class QWeather {
         );
     }
 
-    #NormalizeWeatherAlertLevel(color, ...descriptions) {
+    #NormalizeWeatherAlertColor(color, ...descriptions) {
         const supportedCodes = new Set(["white", "gray", "green", "blue", "yellow", "amber", "orange", "red", "purple", "black"]);
         let code = String(color?.code ?? color ?? "")
             .trim()
@@ -1082,34 +1084,17 @@ export default class QWeather {
             }
         }
 
-        if (!supportedCodes.has(code)) return undefined;
-        return { code, label: this.#WeatherAlertColorLabel(code) };
+        return supportedCodes.has(code) ? code : undefined;
     }
 
-    #WeatherAlertColorLabel(code) {
-        const simplifiedChinese = {
-            white: "白色",
-            gray: "灰色",
-            green: "绿色",
-            blue: "蓝色",
-            yellow: "黄色",
-            amber: "琥珀色",
-            orange: "橙色",
-            red: "红色",
-            purple: "紫色",
-            black: "黑色",
-        };
-        const traditionalChinese = {
-            ...simplifiedChinese,
-            green: "綠色",
-            blue: "藍色",
-            yellow: "黃色",
-            red: "紅色",
-        };
-        const language = String(this.language ?? "").toLowerCase();
-        if (language.startsWith("zh-hant")) return traditionalChinese[code];
-        if (language.startsWith("zh")) return simplifiedChinese[code];
-        return code.charAt(0).toUpperCase() + code.slice(1);
+    #IsCancelledWeatherAlert(alert) {
+        const messageType = String(alert?.messageType?.code ?? alert?.messageType ?? "")
+            .trim()
+            .toLowerCase();
+        if (["cancel", "cancelled", "canceled"].includes(messageType)) return true;
+
+        const text = [alert?.headline, alert?.description].map(value => String(value ?? "")).join("\n");
+        return /(?:解除|取消|撤销|撤消).{0,30}(?:预警|預警|警报|警報|警示)|\b(?:cancelled|canceled|all[ -]?clear)\b/i.test(text);
     }
 
     #NormalizeWeatherAlertCertainty(certainty) {
@@ -1133,11 +1118,24 @@ export default class QWeather {
         return ["advisory", "watch", "warning", "statement", "emergency", "unknown"].includes(normalized) ? normalized : "";
     }
 
-    #NormalizeWeatherAlertUrgency(urgency) {
+    #NormalizeWeatherAlertUrgency(urgency, colorCode) {
         const normalized = String(urgency ?? "")
             .trim()
             .toLowerCase();
-        return ["immediate", "expected", "future", "past", "unknown"].includes(normalized) ? normalized : "unknown";
+        if (["immediate", "expected", "future", "past"].includes(normalized)) return normalized;
+
+        // Chinese warning colors describe severity rather than action time,
+        // but Apple's alert page only renders its fixed urgency values. Use
+        // the closest supported action timing when QWeather leaves it unknown.
+        return (
+            {
+                white: "future",
+                blue: "future",
+                yellow: "future",
+                orange: "expected",
+                red: "immediate",
+            }[colorCode] || "unknown"
+        );
     }
 
     #NormalizeWeatherAlertTitle(description) {

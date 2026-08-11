@@ -65,6 +65,7 @@ export default class WeatherAlerts {
             usedSourceIndexes.add(sourceIndex);
             WeatherAlerts.#FillAlert(targetAlert, source[sourceIndex]);
         }
+        WeatherAlerts.#SortAlerts(target);
         return target;
     }
 
@@ -75,16 +76,9 @@ export default class WeatherAlerts {
         const contextAreaId = identifier.match(/-(\d+)$/)?.[1];
         const attributionURL = String(context?.attributionUrl ?? "");
 
-        return alerts.map((alert, precedence) => {
+        return WeatherAlerts.#SortAlerts(alerts.slice()).map((alert, precedence) => {
             const uid = WeatherAlerts.#StableUUID(`${identifier}:${alert.identifier ?? precedence}`);
             const messages = [];
-            if (alert.warningLevel) {
-                messages.push({
-                    language: context.language,
-                    text: alert.warningLevel,
-                    title: WeatherAlerts.#WarningLevelTitle(context.language),
-                });
-            }
             for (const text of [alert.message, alert.standard, alert.guidelines?.filter(Boolean).join("\n")]) {
                 if (text) messages.push({ language: context.language, text });
             }
@@ -143,12 +137,18 @@ export default class WeatherAlerts {
         WeatherAlerts.#FillText(target, "source", source.source);
         WeatherAlerts.#FillEnum(target, "phenomenon", source.phenomenon);
         WeatherAlerts.#FillText(target, "token", source.token);
-        WeatherAlerts.#FillResponses(target, source);
+        const cancelled = WeatherAlerts.#IsCancelled(source);
+        if (cancelled) {
+            target.responses = ["ALLCLEAR"];
+            target.urgency = "PAST";
+        } else {
+            WeatherAlerts.#FillResponses(target, source);
+            WeatherAlerts.#FillFlatBufferEnum(target, "urgency", source.urgency);
+        }
         WeatherAlerts.#FillFlatBufferEnum(target, "severity", source.severity, ["UNKNOWN"]);
         WeatherAlerts.#FillFlatBufferEnum(target, "certainty", source.certainty);
         WeatherAlerts.#FillFlatBufferEnum(target, "importance", source.importance || WeatherAlerts.#ImportanceFromSeverity(source.severity));
         WeatherAlerts.#FillFlatBufferEnum(target, "significance", source.significance);
-        WeatherAlerts.#FillFlatBufferEnum(target, "urgency", source.urgency);
     }
 
     static #FillText(target, key, sourceValue) {
@@ -266,11 +266,50 @@ export default class WeatherAlerts {
         }
     }
 
-    static #WarningLevelTitle(language) {
-        const normalized = String(language ?? "").toLowerCase();
-        if (normalized.startsWith("zh") && /(?:hant|tw|hk|mo)/.test(normalized)) return "預警等級";
-        if (normalized.startsWith("zh")) return "预警等级";
-        return "Warning level";
+    static #SortAlerts(alerts) {
+        return alerts.sort((left, right) => {
+            const cancellationOrder = Number(WeatherAlerts.#IsCancelled(left)) - Number(WeatherAlerts.#IsCancelled(right));
+            if (cancellationOrder) return cancellationOrder;
+            return WeatherAlerts.#SeverityRank(right?.severity) - WeatherAlerts.#SeverityRank(left?.severity);
+        });
+    }
+
+    static #IsCancelled(alert) {
+        if (alert?.cancelled === true) return true;
+        if (
+            String(alert?.urgency ?? "")
+                .trim()
+                .toLowerCase() === "past"
+        )
+            return true;
+        if (
+            (alert?.responses ?? []).some(response =>
+                ["allclear", "all_clear"].includes(
+                    String(response ?? "")
+                        .trim()
+                        .replace(/[\s-]+/g, "")
+                        .toLowerCase(),
+                ),
+            )
+        )
+            return true;
+        return /(?:解除|取消|撤销|撤消).{0,30}(?:预警|預警|警报|警報|警示)|\b(?:cancelled|canceled|all[ -]?clear)\b/i.test([alert?.description, alert?.message].map(value => String(value ?? "")).join("\n"));
+    }
+
+    static #SeverityRank(severity) {
+        return (
+            {
+                unknown: 0,
+                minor: 1,
+                moderate: 2,
+                severe: 3,
+                extreme: 4,
+            }[
+                String(severity ?? "")
+                    .trim()
+                    .toLowerCase()
+            ] ?? 0
+        );
     }
 
     static #BuildResponses(guidelines, preferredResponses = []) {
