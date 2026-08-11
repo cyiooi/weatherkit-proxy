@@ -78,6 +78,13 @@ export default class WeatherAlerts {
         return alerts.map((alert, precedence) => {
             const uid = WeatherAlerts.#StableUUID(`${identifier}:${alert.identifier ?? precedence}`);
             const messages = [];
+            if (alert.warningLevel) {
+                messages.push({
+                    language: context.language,
+                    text: alert.warningLevel,
+                    title: WeatherAlerts.#WarningLevelTitle(context.language),
+                });
+            }
             for (const text of [alert.message, alert.standard, alert.guidelines?.filter(Boolean).join("\n")]) {
                 if (text) messages.push({ language: context.language, text });
             }
@@ -257,6 +264,13 @@ export default class WeatherAlerts {
             default:
                 return "normal";
         }
+    }
+
+    static #WarningLevelTitle(language) {
+        const normalized = String(language ?? "").toLowerCase();
+        if (normalized.startsWith("zh") && /(?:hant|tw|hk|mo)/.test(normalized)) return "預警等級";
+        if (normalized.startsWith("zh")) return "预警等级";
+        return "Warning level";
     }
 
     static #BuildResponses(guidelines, preferredResponses = []) {

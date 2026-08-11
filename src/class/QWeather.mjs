@@ -987,6 +987,7 @@ export default class QWeather {
         const token = String(alert?.token ?? alert?.eventType?.code ?? alert?.icon ?? "").trim();
         const importance = this.#NormalizeWeatherAlertImportance(alert?.importance);
         const significance = this.#NormalizeWeatherAlertSignificance(alert?.significance);
+        const warningLevel = this.#NormalizeWeatherAlertLevel(alert?.color, alert?.headline, alert?.description);
 
         return {
             ...(areaId ? { areaId } : {}),
@@ -1007,10 +1008,11 @@ export default class QWeather {
             reportedAt: issuedTime,
             ...(significance ? { significance } : {}),
             ...(source ? { source } : {}),
-            severity: this.#NormalizeWeatherAlertSeverity(alert?.severity),
+            severity: this.#NormalizeWeatherAlertSeverity(alert?.severity, warningLevel?.code),
             standard: "",
             ...(token ? { token } : {}),
             urgency: this.#NormalizeWeatherAlertUrgency(alert?.urgency),
+            ...(warningLevel?.label ? { warningLevel: warningLevel.label } : {}),
         };
     }
 
@@ -1020,11 +1022,94 @@ export default class QWeather {
         return Number.isNaN(date.getTime()) ? "" : date.toISOString();
     }
 
-    #NormalizeWeatherAlertSeverity(severity) {
+    #NormalizeWeatherAlertSeverity(severity, colorCode) {
         const normalized = String(severity ?? "")
             .trim()
             .toLowerCase();
-        return ["extreme", "severe", "moderate", "minor"].includes(normalized) ? normalized : "unknown";
+        if (["extreme", "severe", "moderate", "minor"].includes(normalized)) return normalized;
+
+        // Apple exposes four danger levels while Chinese warning systems may
+        // use five colors. Preserve QWeather's severity when present and only
+        // use the color hierarchy as a compatibility fallback.
+        return (
+            {
+                white: "minor",
+                gray: "minor",
+                green: "minor",
+                blue: "minor",
+                yellow: "moderate",
+                amber: "moderate",
+                orange: "severe",
+                red: "extreme",
+                purple: "extreme",
+                black: "extreme",
+            }[colorCode] || "unknown"
+        );
+    }
+
+    #NormalizeWeatherAlertLevel(color, ...descriptions) {
+        const supportedCodes = new Set(["white", "gray", "green", "blue", "yellow", "amber", "orange", "red", "purple", "black"]);
+        let code = String(color?.code ?? color ?? "")
+            .trim()
+            .toLowerCase();
+        if (code === "grey") code = "gray";
+
+        if (!supportedCodes.has(code)) {
+            const text = descriptions.map(description => String(description ?? "")).join("\n");
+            const chineseMatch = text.match(/(琥珀|[白灰绿綠蓝藍黄黃橙红紅紫黑])色\s*(?:预警|預警|警报|警報|警示)/);
+            const chineseCodes = {
+                白: "white",
+                灰: "gray",
+                绿: "green",
+                綠: "green",
+                蓝: "blue",
+                藍: "blue",
+                黄: "yellow",
+                黃: "yellow",
+                琥珀: "amber",
+                橙: "orange",
+                红: "red",
+                紅: "red",
+                紫: "purple",
+                黑: "black",
+            };
+            code = chineseCodes[chineseMatch?.[1]];
+
+            if (!code) {
+                const englishMatch = text.match(/\b(white|gr[ae]y|green|blue|yellow|amber|orange|red|purple|black)\b(?=.{0,30}\b(?:alert|warning)\b)/i);
+                code = englishMatch?.[1]?.toLowerCase();
+                if (code === "grey") code = "gray";
+            }
+        }
+
+        if (!supportedCodes.has(code)) return undefined;
+        return { code, label: this.#WeatherAlertColorLabel(code) };
+    }
+
+    #WeatherAlertColorLabel(code) {
+        const simplifiedChinese = {
+            white: "白色",
+            gray: "灰色",
+            green: "绿色",
+            blue: "蓝色",
+            yellow: "黄色",
+            amber: "琥珀色",
+            orange: "橙色",
+            red: "红色",
+            purple: "紫色",
+            black: "黑色",
+        };
+        const traditionalChinese = {
+            ...simplifiedChinese,
+            green: "綠色",
+            blue: "藍色",
+            yellow: "黃色",
+            red: "紅色",
+        };
+        const language = String(this.language ?? "").toLowerCase();
+        if (language.startsWith("zh-hant")) return traditionalChinese[code];
+        if (language.startsWith("zh")) return simplifiedChinese[code];
+        return code.charAt(0).toUpperCase() + code.slice(1);
     }
 
     #NormalizeWeatherAlertCertainty(certainty) {

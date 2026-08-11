@@ -26,6 +26,7 @@ const QWEATHER_ALERT_API = {
             expiresTime: "2026-08-03T09:48Z",
             eventType: { name: "高温", code: "1009" },
             severity: "severe",
+            color: { code: "orange", red: 255, green: 165, blue: 0, alpha: 1 },
             headline: "南京市气象台发布高温橙色预警",
             description: "南京市气象台继续发布高温橙色预警信号，请注意防暑降温。",
             responseTypes: ["monitor"],
@@ -149,7 +150,38 @@ test("和风预警 API 使用所选语言、Host 与 Token，并标准化预警�
             standard: "",
             token: "1009",
             urgency: "unknown",
+            warningLevel: "Orange",
         });
+    });
+});
+
+test("和风预警提取颜色等级，并在严重程度缺失时映射 Apple 等级", async () => {
+    const levels = [
+        ["white", "白色", "minor"],
+        ["blue", "蓝色", "minor"],
+        ["yellow", "黄色", "moderate"],
+        ["orange", "橙色", "severe"],
+        ["red", "红色", "extreme"],
+    ];
+    const responseBody = {
+        metadata: { attributions: ["国家预警信息发布中心"] },
+        alerts: levels.map(([code, label], index) => ({
+            id: `alert-${code}`,
+            issuedTime: "2026-08-02T09:48Z",
+            eventType: { name: "大风", code: `100${index}` },
+            severity: null,
+            ...(code === "blue" ? {} : { color: { code } }),
+            headline: `某市气象台发布大风${label}预警`,
+            description: `某市气象台发布大风${label}预警信号。`,
+        })),
+    };
+
+    await withMockedFetch(responseBody, async () => {
+        const extracted = await new QWeather({ country: "CN", language: "zh-CN", latitude: "32.115", longitude: "118.814" }, "test-token").WeatherAlert();
+        assert.deepEqual(
+            extracted.alerts.map(alert => [alert.warningLevel, alert.severity]),
+            levels.map(([, label, severity]) => [label, severity]),
+        );
     });
 });
 
@@ -225,6 +257,7 @@ test("v1 weatherAlerts 详情接口按配置返回 Apple 兼容 JSON", async () 
         assert.equal(body[0].importance, "high");
         assert.deepEqual(body[0].responses, ["monitor"]);
         assert.deepEqual(body[0].messages, [
+            { language: "zh-CN", text: "橙色", title: "预警等级" },
             { language: "zh-CN", text: "南京市气象台继续发布高温橙色预警信号，请注意防暑降温。" },
             { language: "zh-CN", text: "有关部门落实防暑降温保障措施。\n尽量避免在高温时段进行户外活动。" },
         ]);
