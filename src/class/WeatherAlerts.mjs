@@ -57,14 +57,17 @@ export default class WeatherAlerts {
     static mergeAlerts(target = [], source = []) {
         if (!Array.isArray(target) || !Array.isArray(source) || !target.length || !source.length) return target;
 
+        WeatherAlerts.#DeduplicateAlertsInPlace(target);
+        const sourceAlerts = WeatherAlerts.#DeduplicateAlerts(source);
         const usedSourceIndexes = new Set();
         for (let targetIndex = 0; targetIndex < target.length; targetIndex++) {
             const targetAlert = target[targetIndex];
-            const sourceIndex = WeatherAlerts.#FindSourceAlert(targetAlert, source, usedSourceIndexes, targetIndex);
-            if (!targetAlert || sourceIndex < 0 || !source[sourceIndex]) continue;
+            const sourceIndex = WeatherAlerts.#FindSourceAlert(targetAlert, sourceAlerts, usedSourceIndexes, targetIndex);
+            if (!targetAlert || sourceIndex < 0 || !sourceAlerts[sourceIndex]) continue;
             usedSourceIndexes.add(sourceIndex);
-            WeatherAlerts.#FillAlert(targetAlert, source[sourceIndex]);
+            WeatherAlerts.#FillAlert(targetAlert, sourceAlerts[sourceIndex]);
         }
+        WeatherAlerts.#DeduplicateAlertsInPlace(target);
         WeatherAlerts.#SortAlerts(target);
         return target;
     }
@@ -76,7 +79,7 @@ export default class WeatherAlerts {
         const contextAreaId = identifier.match(/-(\d+)$/)?.[1];
         const attributionURL = String(context?.attributionUrl ?? "");
 
-        return WeatherAlerts.#SortAlerts(alerts.slice()).map((alert, precedence) => {
+        return WeatherAlerts.#SortAlerts(WeatherAlerts.#DeduplicateAlerts(alerts)).map((alert, precedence) => {
             const uid = WeatherAlerts.#StableUUID(`${identifier}:${alert.identifier ?? precedence}`);
             const messages = [];
             for (const text of [alert.message, alert.standard, alert.guidelines?.filter(Boolean).join("\n")]) {
@@ -163,7 +166,8 @@ export default class WeatherAlerts {
         if (!value) return;
         const currentKey = WeatherAlerts.#NormalizeMatchText(current);
         const phenomenonKey = WeatherAlerts.#NormalizeMatchText(source?.phenomenon);
-        if (!currentKey || currentKey === phenomenonKey || currentKey === "other" || currentKey === "unknown") target.description = value;
+        const replaceGeneric = WeatherAlerts.#IsGenericDescription(current) && !WeatherAlerts.#IsGenericDescription(value);
+        if (!currentKey || currentKey === phenomenonKey || replaceGeneric) target.description = value;
     }
 
     static #FillEnum(target, key, sourceValue, fallbackValues = ["unknown", "Other"]) {
@@ -272,6 +276,61 @@ export default class WeatherAlerts {
             if (cancellationOrder) return cancellationOrder;
             return WeatherAlerts.#SeverityRank(right?.severity) - WeatherAlerts.#SeverityRank(left?.severity);
         });
+    }
+
+    static #DeduplicateAlerts(alerts) {
+        const selectedByType = new Map();
+        for (let index = 0; index < alerts.length; index++) {
+            const alert = alerts[index];
+            const type = WeatherAlerts.#AlertTypeKey(alert);
+            if (!type) continue;
+
+            const candidate = { index, time: WeatherAlerts.#AlertTime(alert) };
+            const selected = selectedByType.get(type);
+            if (!selected || candidate.time > selected.time) selectedByType.set(type, candidate);
+        }
+
+        return alerts.filter((alert, index) => {
+            const type = WeatherAlerts.#AlertTypeKey(alert);
+            return !type || selectedByType.get(type)?.index === index;
+        });
+    }
+
+    static #DeduplicateAlertsInPlace(alerts) {
+        const deduplicated = WeatherAlerts.#DeduplicateAlerts(alerts);
+        if (deduplicated.length !== alerts.length) alerts.splice(0, alerts.length, ...deduplicated);
+        return alerts;
+    }
+
+    static #AlertTypeKey(alert) {
+        const phenomenon = WeatherAlerts.#NormalizeAlertTypeText(alert?.phenomenon);
+        if (phenomenon && !WeatherAlerts.#IsGenericDescription(phenomenon)) return `phenomenon:${phenomenon}`;
+
+        const token = WeatherAlerts.#NormalizeMatchText(alert?.token);
+        if (token && !["other", "unknown"].includes(token)) return `token:${token}`;
+
+        const description = WeatherAlerts.#NormalizeAlertTypeText(alert?.description);
+        if (description && !WeatherAlerts.#IsGenericDescription(description)) return `description:${description}`;
+        return "";
+    }
+
+    static #NormalizeAlertTypeText(value) {
+        return WeatherAlerts.#NormalizeMatchText(value)
+            .replace(/(?:白|灰|绿|綠|蓝|藍|黄|黃|琥珀|橙|红|紅|紫|黑)色|\b(?:white|gr[ae]y|green|blue|yellow|amber|orange|red|purple|black)\b/gi, "")
+            .replace(/^(?:解除|取消|撤销|撤消|終止|终止|cancelled|canceled|allclear)/i, "");
+    }
+
+    static #AlertTime(alert) {
+        for (const value of [alert?.issuedTime, alert?.effectiveTime, alert?.reportedAt]) {
+            if (typeof value === "number" && Number.isFinite(value)) return value < 1_000_000_000_000 ? value * 1000 : value;
+            const time = Date.parse(String(value ?? ""));
+            if (!Number.isNaN(time)) return time;
+        }
+        return Number.NEGATIVE_INFINITY;
+    }
+
+    static #IsGenericDescription(value) {
+        return new Set(["恶劣天气", "惡劣天氣", "极端天气", "極端天氣", "severeweather", "severeweatheralert", "extremeweather", "extremeweatheralert", "weatheralert", "other", "unknown", "其他", "其它", "未知"]).has(WeatherAlerts.#NormalizeMatchText(value));
     }
 
     static #IsCancelled(alert) {

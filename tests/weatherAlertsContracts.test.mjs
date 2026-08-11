@@ -199,14 +199,14 @@ test("解除预警按已结束处理，全部预警按严重程度排序", async
                 description: "杭州市萧山区气象台解除台风蓝色预警。",
             },
             ...[
-                ["red-a", "地质灾害气象风险红色预警甲", "extreme", "red"],
-                ["red-b", "地质灾害气象风险红色预警乙", "extreme", "red"],
-                ["yellow", "山洪灾害黄色预警", "moderate", "yellow"],
-                ["orange", "山洪灾害橙色预警", "severe", "orange"],
-            ].map(([id, headline, severity, color]) => ({
+                ["red-a", "暴雨红色预警", "暴雨", "extreme", "red"],
+                ["red-b", "高温红色预警", "高温", "extreme", "red"],
+                ["yellow", "雷电黄色预警", "雷电", "moderate", "yellow"],
+                ["orange", "山洪灾害橙色预警", "山洪灾害", "severe", "orange"],
+            ].map(([id, headline, phenomenon, severity, color]) => ({
                 id,
                 issuedTime: "2026-08-10T22:00+08:00",
-                eventType: { name: headline, code: id },
+                eventType: { name: phenomenon, code: id },
                 severity,
                 color: { code: color },
                 headline,
@@ -227,7 +227,7 @@ test("解除预警按已结束处理，全部预警按严重程度排序", async
 
         assert.deepEqual(
             built.map(alert => alert.description),
-            ["地质灾害气象风险红色预警甲", "地质灾害气象风险红色预警乙", "山洪灾害橙色预警", "山洪灾害黄色预警", "杭州市萧山区气象台解除台风蓝色预警"],
+            ["暴雨红色预警", "高温红色预警", "山洪灾害橙色预警", "雷电黄色预警", "杭州市萧山区气象台解除台风蓝色预警"],
         );
         assert.deepEqual(
             built.map(alert => alert.precedence),
@@ -250,6 +250,95 @@ test("解除预警按已结束处理，全部预警按严重程度排序", async
         );
         assert.equal(summaries.at(-1).urgency, "PAST", "解除预警应覆盖旧紧急程度");
         assert.deepEqual(summaries.at(-1).responses, ["ALLCLEAR"], "解除预警应覆盖旧建议行动");
+    });
+});
+
+test("同类型预警只保留最近一条，最新解除通知取代旧预警", async () => {
+    const responseBody = {
+        metadata: { attributions: ["国家预警信息发布中心"] },
+        alerts: [
+            {
+                id: "geological-old",
+                issuedTime: "2026-08-10T10:00+08:00",
+                eventType: { name: "地质灾害气象风险", code: "1201" },
+                severity: "severe",
+                color: { code: "orange" },
+                headline: "地质灾害气象风险橙色预警",
+                description: "较早发布的地质灾害气象风险橙色预警。",
+            },
+            {
+                id: "typhoon-active",
+                issuedTime: "2026-08-10T11:00+08:00",
+                eventType: { name: "台风", code: "1001" },
+                severity: "minor",
+                color: { code: "blue" },
+                headline: "台风蓝色预警",
+                description: "台风蓝色预警仍在生效。",
+            },
+            {
+                id: "geological-latest",
+                issuedTime: "2026-08-10T12:00+08:00",
+                eventType: { name: "地质灾害气象风险", code: "1201" },
+                severity: "moderate",
+                color: { code: "yellow" },
+                headline: "地质灾害气象风险黄色预警",
+                description: "最新发布的地质灾害气象风险黄色预警。",
+            },
+            {
+                id: "typhoon-cancel",
+                issuedTime: "2026-08-10T13:00+08:00",
+                messageType: { code: "cancel" },
+                eventType: { name: "台风", code: "1001" },
+                severity: "minor",
+                color: { code: "blue" },
+                headline: "解除台风蓝色预警",
+                description: "台风蓝色预警已经解除。",
+            },
+        ],
+    };
+
+    await withMockedFetch(responseBody, async () => {
+        const extracted = await new QWeather({ country: "CN", language: "zh-CN", latitude: "30.2", longitude: "120.2" }, "test-token").WeatherAlert();
+        const built = WeatherAlerts.Build(extracted, {
+            attributionUrl: "https://www.12379.cn/",
+            countryCode: "CN",
+            eventSource: "CN",
+            identifier: "30.2,120.2",
+            language: "zh-CN",
+        });
+
+        assert.deepEqual(
+            built.map(alert => alert.description),
+            ["地质灾害气象风险黄色预警", "解除台风蓝色预警"],
+        );
+        assert.equal(built[0].severity, "moderate", "应按发布时间保留最新降级预警，而不是保留更严重的旧预警");
+        assert.equal(built[1].urgency, "past");
+        assert.deepEqual(built[1].responses, ["allClear"]);
+
+        const summaries = [
+            {
+                description: "恶劣天气",
+                issuedTime: Math.trunc(new Date("2026-08-10T10:00+08:00").getTime() / 1000),
+                phenomenon: "Other",
+                responses: [],
+                severity: "UNKNOWN",
+                token: "1201",
+                urgency: "UNKNOWN",
+            },
+            {
+                description: "极端天气",
+                issuedTime: Math.trunc(new Date("2026-08-10T12:00+08:00").getTime() / 1000),
+                phenomenon: "Other",
+                responses: [],
+                severity: "UNKNOWN",
+                token: "1201",
+                urgency: "UNKNOWN",
+            },
+        ];
+        WeatherAlerts.mergeAlerts(summaries, extracted.alerts);
+        assert.equal(summaries.length, 1, "v2 摘要中的同类型预警也应去重");
+        assert.equal(summaries[0].description, "地质灾害气象风险黄色预警", "通用标题应替换为最新的具体预警标题");
+        assert.equal(summaries[0].severity, "MODERATE");
     });
 });
 
@@ -556,6 +645,75 @@ test("v2 weatherAlerts 在非天气替换国家也会补全，并保留单条 Ap
     assert.equal(alerts.alerts[0].source, "National Early Warning Center");
 });
 
+test("v2 weatherAlerts 将同类型通用摘要替换为最新具体预警", async () => {
+    const olderTime = Math.trunc(new Date("2026-08-10T10:00+08:00").getTime() / 1000);
+    const latestTime = Math.trunc(new Date("2026-08-10T12:00+08:00").getTime() / 1000);
+    const originalBytes = createWeatherAlertRoot("National Early Warning Center", [
+        {
+            description: "恶劣天气",
+            effectiveTime: olderTime,
+            id: "00000000-0000-4000-8000-000000000001",
+            issuedTime: olderTime,
+            severity: "SEVERE",
+            token: "1201",
+        },
+        {
+            description: "极端天气",
+            effectiveTime: latestTime,
+            id: "00000000-0000-4000-8000-000000000002",
+            issuedTime: latestTime,
+            severity: "UNKNOWN",
+            token: "1201",
+        },
+    ]);
+    const response = await Response(
+        {
+            url: "https://weatherkit.apple.com/api/v2/weather/zh-Hans-CN/30.2/120.2?country=CN&dataSets=weatherAlerts",
+        },
+        {
+            bodyBytes: originalBytes,
+            headers: { "Content-Type": "application/vnd.apple.flatbuffer" },
+            status: 200,
+        },
+        {
+            Settings: { Weather: { Replace: [] }, WeatherAlerts: { Provider: "QWeather" }, API: { QWeather: { Token: "test-token" } } },
+            parameters: { country: "CN", dataSets: ["weatherAlerts"], language: "zh-Hans", latitude: 30.2, longitude: 120.2 },
+            enviroments: {
+                country: "CN",
+                qWeather: {
+                    WeatherAlert: async () => ({
+                        alerts: [
+                            {
+                                description: "地质灾害气象风险橙色预警",
+                                issuedTime: "2026-08-10T10:00+08:00",
+                                phenomenon: "地质灾害气象风险",
+                                severity: "severe",
+                                token: "1201",
+                            },
+                            {
+                                description: "地质灾害气象风险黄色预警",
+                                issuedTime: "2026-08-10T12:00+08:00",
+                                phenomenon: "地质灾害气象风险",
+                                severity: "moderate",
+                                token: "1201",
+                                urgency: "future",
+                            },
+                        ],
+                    }),
+                },
+            },
+        },
+    );
+    const decoded = WeatherKit2.decode(new ByteBuffer(new Uint8Array(response.body)), ["weatherAlerts"]);
+    const alerts = decoded.weatherAlerts.alerts;
+
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].description, "地质灾害气象风险黄色预警");
+    assert.equal(alerts[0].issuedTime, latestTime);
+    assert.equal(alerts[0].severity, "MODERATE");
+    assert.equal(alerts[0].urgency, "FUTURE");
+});
+
 test("v2 weatherAlerts 对其他 Apple 数据源保持字节级透传", async () => {
     const originalBytes = createWeatherAlertRoot("The Weather Channel");
     const response = await Response(
@@ -663,8 +821,33 @@ function normalizedQWeatherAlerts() {
     };
 }
 
-function createWeatherAlertRoot(providerName) {
+function createWeatherAlertRoot(providerName, alertOverrides) {
     const builder = new Builder(4096);
+    const defaultAlert = {
+        areaId: "",
+        areaName: "",
+        attributionUrl: "https://apple.example/alerts",
+        certainty: "UNKNOWN",
+        countryCode: "US",
+        description: "高温",
+        detailsUrl: "https://apple.example/alert/1",
+        effectiveTime: 1_785_573_420,
+        eventEndTime: 0,
+        eventOnsetTime: 0,
+        eventSource: "US",
+        expireTime: 1_785_659_820,
+        id: "3c9fabb5-4d8e-3d1a-9579-bc3c5b050c1f",
+        importance: "HIGHER",
+        issuedTime: 1_785_573_420,
+        phenomenon: "Other",
+        responses: [],
+        severity: "SEVERE",
+        significance: "UNKNOWN",
+        source: providerName,
+        token: "11B09",
+        urgency: "UNKNOWN",
+    };
+    const alerts = Array.isArray(alertOverrides) ? alertOverrides.map(overrides => ({ ...defaultAlert, ...overrides })) : [defaultAlert];
     const root = WeatherKit2.encode(builder, "all", {
         weatherAlerts: {
             metadata: {
@@ -679,32 +862,7 @@ function createWeatherAlertRoot(providerName) {
                 temporarilyUnavailable: false,
                 sourceType: "STATION",
             },
-            alerts: [
-                {
-                    areaId: "",
-                    areaName: "",
-                    attributionUrl: "https://apple.example/alerts",
-                    certainty: "UNKNOWN",
-                    countryCode: "US",
-                    description: "高温",
-                    detailsUrl: "https://apple.example/alert/1",
-                    effectiveTime: 1_785_573_420,
-                    eventEndTime: 0,
-                    eventOnsetTime: 0,
-                    eventSource: "US",
-                    expireTime: 1_785_659_820,
-                    id: "3c9fabb5-4d8e-3d1a-9579-bc3c5b050c1f",
-                    importance: "HIGHER",
-                    issuedTime: 1_785_573_420,
-                    phenomenon: "Other",
-                    responses: [],
-                    severity: "SEVERE",
-                    significance: "UNKNOWN",
-                    source: providerName,
-                    token: "11B09",
-                    urgency: "UNKNOWN",
-                },
-            ],
+            alerts,
             detailsUrl: "https://apple.example/alerts",
         },
     });
