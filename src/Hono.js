@@ -156,14 +156,16 @@ async function buildWeatherAlertsDetails(url, Settings) {
     const language = url.searchParams.get("lang")?.trim() || "zh-CN";
     const country = url.searchParams.get("country")?.trim().toUpperCase() || "CN";
     const providerName = WeatherAlerts.ResolveProvider(Settings);
-    if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return null;
+    // 坐标标识由代理生成，Apple 的详情接口只接受原生预警 UUID。
+    // 第三方不可用时返回空数组，避免把坐标误传给 Apple 并收到 HTML 页面。
+    if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return [];
     const parameters = { ...coordinates, country, language, version: "v1" };
 
     let extracted;
     let attributionUrl;
     switch (providerName) {
         case "WeatherKit":
-            return null;
+            return [];
         case "QWeather": {
             const provider = new QWeather(parameters, Settings?.API?.QWeather?.Token, Settings?.API?.QWeather?.Host);
             extracted = await provider.WeatherAlert();
@@ -177,7 +179,7 @@ async function buildWeatherAlertsDetails(url, Settings) {
             break;
         }
         default:
-            return null;
+            return [];
     }
 
     const alerts = WeatherAlerts.Build(extracted, {
@@ -187,7 +189,7 @@ async function buildWeatherAlertsDetails(url, Settings) {
         countryCode: country,
         eventSource: country,
     });
-    return alerts.length ? alerts : null;
+    return alerts;
 }
 
 async function handleWeatherRequest(c, queryArguments = {}) {
@@ -218,7 +220,7 @@ async function handleWeatherRequest(c, queryArguments = {}) {
 
         if (url.pathname === WEATHER_ALERTS_PATH) {
             const weatherAlerts = await buildWeatherAlertsDetails(url, Settings);
-            if (weatherAlerts) {
+            if (weatherAlerts !== null) {
                 c.header("Access-Control-Allow-Origin", "*");
                 c.header("Cache-Control", "max-age=0");
                 c.header("Content-Type", "application/json; charset=utf-8");

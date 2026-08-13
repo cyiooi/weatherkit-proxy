@@ -646,58 +646,45 @@ test("v1 weatherAlerts 默认使用 api.qweather.com 与公共 Key", async () =>
     });
 });
 
-test("v1 weatherAlerts 显式选择 WeatherKit 时不请求 QWeather 并透传 Apple 原始详情", async () => {
+test("v1 weatherAlerts 显式选择 WeatherKit 时不把坐标标识转发给 Apple", async () => {
     const encoded = encodeConfigPayload(JSON.stringify({ WeatherAlerts: { Provider: "WeatherKit" } }));
-    const requested = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async input => {
-        const url = typeof input === "string" ? input : input?.url;
-        requested.push(url);
-        return new globalThis.Response(JSON.stringify([{ id: "apple-alert", source: "Apple" }]), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-        });
+    globalThis.fetch = async () => {
+        assert.fail("坐标格式的预警详情不应请求 Apple");
     };
 
     try {
         const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
-        assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
-        assert.equal(requested.length, 1);
-        assert.match(requested[0], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get("content-type"), /^application\/json/);
+        assert.deepEqual(await response.json(), []);
     } finally {
         globalThis.fetch = originalFetch;
     }
 });
 
-test("v1 weatherAlerts 的旧彩云配置缺少 Token 时直接透传 Apple", async () => {
+test("v1 weatherAlerts 的旧彩云配置缺少 Token 时不把坐标标识转发给 Apple", async () => {
     const encoded = encodeConfigPayload(
         JSON.stringify({
             WeatherAlerts: { Provider: "ColorfulClouds" },
             API: { ColorfulClouds: { Token: null } },
         }),
     );
-    const requested = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async input => {
-        const url = typeof input === "string" ? input : input?.url;
-        requested.push(url);
-        return new globalThis.Response(JSON.stringify([{ id: "apple-alert", source: "Apple" }]), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-        });
+    globalThis.fetch = async () => {
+        assert.fail("缺少第三方 Token 时不应使用坐标格式请求 Apple");
     };
 
     try {
         const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
-        assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
-        assert.equal(requested.length, 1);
-        assert.match(requested[0], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), []);
     } finally {
         globalThis.fetch = originalFetch;
     }
 });
 
-test("v1 weatherAlerts 第三方连接失败时回退 Apple 原始详情", async () => {
+test("v1 weatherAlerts 第三方连接失败时返回空数组，不把坐标标识转发给 Apple", async () => {
     const encoded = encodeConfigPayload(
         JSON.stringify({
             WeatherAlerts: { Provider: "ColorfulClouds" },
@@ -710,18 +697,47 @@ test("v1 weatherAlerts 第三方连接失败时回退 Apple 原始详情", async
         const url = typeof input === "string" ? input : input?.url;
         requested.push(url);
         if (url.startsWith("https://singer.caiyunhub.com/")) throw new TypeError("fetch failed");
-        return new globalThis.Response(JSON.stringify([{ id: "apple-alert", source: "Apple" }]), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-        });
+        assert.fail(`不应继续请求 Apple: ${url}`);
     };
 
     try {
         const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
-        assert.deepEqual(await response.json(), [{ id: "apple-alert", source: "Apple" }]);
-        assert.equal(requested.length, 2);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), []);
+        assert.equal(requested.length, 1);
         assert.match(requested[0], /^https:\/\/singer\.caiyunhub\.com\/v3\/cap_alert\/location\?/);
-        assert.match(requested[1], /^https:\/\/weatherkit\.apple\.com\/api\/v1\/weatherAlerts\?/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v1 weatherAlerts 的 QWeather 403 返回空数组，不把坐标标识转发给 Apple", async () => {
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async input => {
+        const url = typeof input === "string" ? input : input?.url;
+        requested.push(url);
+        if (url.startsWith("https://api.qweather.com/")) {
+            return new globalThis.Response(
+                JSON.stringify({
+                    error: {
+                        status: 403,
+                        title: "Security Restriction",
+                    },
+                }),
+                { status: 403, headers: { "content-type": "application/json" } },
+            );
+        }
+        assert.fail(`不应继续请求 Apple: ${url}`);
+    };
+
+    try {
+        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get("content-type"), /^application\/json/);
+        assert.deepEqual(await response.json(), []);
+        assert.equal(requested.length, 1);
+        assert.match(requested[0], /^https:\/\/api\.qweather\.com\/weatheralert\/v1\/current\//);
     } finally {
         globalThis.fetch = originalFetch;
     }
