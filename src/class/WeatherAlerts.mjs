@@ -139,7 +139,11 @@ export default class WeatherAlerts {
         WeatherAlerts.#FillTime(target, "issuedTime", source.issuedTime ?? source.effectiveTime);
         WeatherAlerts.#FillDescription(target, source);
         WeatherAlerts.#FillText(target, "source", source.source);
-        WeatherAlerts.#FillEnum(target, "phenomenon", source.phenomenon);
+        // WK2 exposes this field to WeatherKit clients as the concrete alert
+        // summary. Keep the provider's CAP category for the v1 details JSON,
+        // but do not replace a missing Apple summary with a generic value such
+        // as "Met"; WeatherKit clients consume this as the event summary.
+        WeatherAlerts.#FillEnum(target, "phenomenon", source.eventName || source.phenomenon);
         WeatherAlerts.#FillText(target, "token", source.token);
         const cancelled = WeatherAlerts.#IsCancelled(source);
         if (cancelled) {

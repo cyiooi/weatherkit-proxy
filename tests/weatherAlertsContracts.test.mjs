@@ -795,7 +795,7 @@ test("预警摘要只补缺失字段，并使用本仓库固定 schema 的枚举
     );
 
     assert.equal(target.description, "高温橙色预警");
-    assert.equal(target.phenomenon, "Met");
+    assert.equal(target.phenomenon, "高温", "v2 摘要应使用具体 eventName，不能使用通用 CAP 分类");
     assert.deepEqual(target.responses, ["PREPARE", "ALLCLEAR"]);
     assert.equal(target.severity, "SEVERE");
     assert.equal(target.certainty, "LIKELY");
@@ -902,7 +902,7 @@ test("v2 weatherAlerts 在非天气替换国家也会补全，并保留单条 Ap
     assert.equal(alerts.alerts[0].areaName, "南京市");
     assert.equal(alerts.alerts[0].description, "高温橙色预警");
     assert.equal(alerts.alerts[0].eventOnsetTime, 1_785_664_080);
-    assert.equal(alerts.alerts[0].phenomenon, "Met");
+    assert.equal(alerts.alerts[0].phenomenon, "高温", "v2 摘要应保留具体预警类型，不能写成通用 CAP 分类 Met");
     assert.deepEqual(alerts.alerts[0].responses, ["MONITOR"]);
     assert.equal(alerts.alerts[0].detailsUrl, "https://apple.example/alert/1");
     assert.equal(alerts.alerts[0].source, "National Early Warning Center");
