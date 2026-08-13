@@ -286,6 +286,26 @@ test("Condition preserves empty output for missing or unsupported non-alternatin
     assert.deepEqual(ForecastNextHour.Condition(makeSummaries("RRC")), []);
 });
 
+test("Condition only announces STOP when rain ends within 15 minutes", () => {
+    const withinWindow = makeStopSummaries(15);
+    assert.deepEqual(
+        ForecastNextHour.Condition(withinWindow, BASE_TIME).map(condition => condition.forecastToken),
+        ["STOP", "CLEAR"],
+    );
+
+    const outsideWindow = makeStopSummaries(16);
+    assert.deepEqual(ForecastNextHour.Condition(outsideWindow, BASE_TIME), [
+        {
+            beginCondition: "RAIN",
+            endCondition: "RAIN",
+            forecastToken: "CONSTANT",
+            parameters: [],
+            startTime: BASE_TIME - 60,
+            endTime: 0,
+        },
+    ]);
+});
+
 function makeSummaries(pattern) {
     return [...pattern].map((symbol, index) => ({
         clear: symbol === "C",
@@ -293,6 +313,24 @@ function makeSummaries(pattern) {
         maxCondition: symbol === "C" ? "CLEAR" : RAIN_CONDITIONS[index % RAIN_CONDITIONS.length],
         startTime: BASE_TIME + index * INTERVAL,
     }));
+}
+
+function makeStopSummaries(minutesUntilStop) {
+    const stopTime = BASE_TIME + minutesUntilStop * 60;
+    return [
+        {
+            clear: false,
+            endTime: stopTime,
+            maxCondition: "RAIN",
+            startTime: BASE_TIME - 60,
+        },
+        {
+            clear: true,
+            endTime: 0,
+            maxCondition: "CLEAR",
+            startTime: stopTime,
+        },
+    ];
 }
 
 function materializeConditions(summaries, specs) {

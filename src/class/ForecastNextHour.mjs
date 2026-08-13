@@ -10,6 +10,9 @@ export default class ForecastNextHour {
     // 促使客户端在 relevance cutoff 之前刷新。
     static ExpirationInterval = 10 * 60;
 
+    // Apple 会把 STOP 固定渲染为“即将停止下雨”，因此仅在 15 分钟内停雨时使用。
+    static StopSoonInterval = 15 * 60;
+
     static #Configs = {
         Pollutants: {
             co: "CO",
@@ -311,7 +314,7 @@ export default class ForecastNextHour {
         return Summaries;
     }
 
-    static Condition(summaries = []) {
+    static Condition(summaries = [], referenceTime = undefined) {
         Console.debug("☑️ Condition");
         const Conditions = [];
         if (!summaries.length) {
@@ -329,6 +332,13 @@ export default class ForecastNextHour {
                 Console.debug("✅ Condition");
                 return Conditions;
             }
+        }
+
+        // 当前正在降水但 15 分钟内不会停止时，不提前生成 STOP / STOP_START。
+        // 将当前段视为持续降水，避免 Apple 显示语义不符的“即将停止下雨”。
+        const current = summaries[0];
+        if (Number.isFinite(referenceTime) && !current.clear && current.endTime > referenceTime + ForecastNextHour.StopSoonInterval) {
+            summaries = [{ ...current, endTime: 0 }];
         }
 
         // 通用多段处理：不再限定 1~4 段，任意数量的 clear / 降水交替段都能正确生成 token。
