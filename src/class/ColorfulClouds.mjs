@@ -6,48 +6,18 @@ import Weather from "./Weather.mjs";
 export default class ColorfulClouds {
     constructor(parameters, token) {
         this.Name = "ColorfulClouds";
-        this.Version = "4.1.0";
+        this.Version = "4.2.1";
         Console.debug(`🟧 ${this.Name} v${this.Version}`);
         this.endpoint = `https://api.caiyunapp.com/v2.6/${token}/${parameters.longitude},${parameters.latitude}`;
         this.headers = { Referer: "https://caiyunapp.com/" };
         this.token = token;
         this.version = parameters.version;
-        switch (
-            String(parameters.language ?? "")
-                .trim()
-                .toLowerCase()
-        ) {
-            case "zh-cn":
-            case "zh-hans":
-            case "zh-hans-cn":
-            case "zh-sg":
-                this.language = "zh_CN";
-                break;
-            case "zh-hant":
-            case "zh-hant-hk":
-            case "zh-hant-mo":
-            case "zh-hant-tw":
-            case "zh-hk":
-            case "zh-mo":
-            case "zh-tw":
-                this.language = "zh_TW";
-                break;
-            case "ja":
-            case "ja-jp":
-                this.language = "ja";
-                break;
-            case "en-gb":
-                this.language = "en_GB";
-                break;
-            case "en-au":
-            case "en-ca":
-            case "en-us":
-                this.language = "en_US";
-                break;
-            case "":
-            default:
-                this.language = "zh_CN";
-        }
+        this.language =
+            this.#Config.Language[
+                String(parameters.language ?? "")
+                    .trim()
+                    .toLowerCase()
+            ] ?? this.#Config.Language[""];
         this.latitude = parameters.latitude;
         this.longitude = parameters.longitude;
         this.country = parameters.country;
@@ -59,6 +29,28 @@ export default class ColorfulClouds {
     };
 
     #Config = {
+        Language: {
+            "": "zh_CN",
+            ja: "ja",
+            "ja-jp": "ja",
+            en: "en_US",
+            "en-gb": "en_GB",
+            "en-au": "en_US",
+            "en-ca": "en_US",
+            "en-us": "en_US",
+            zh: "zh_CN",
+            "zh-cn": "zh_CN",
+            "zh-hans": "zh_CN",
+            "zh-hans-cn": "zh_CN",
+            "zh-sg": "zh_CN",
+            "zh-hant": "zh_TW",
+            "zh-hant-hk": "zh_TW",
+            "zh-hant-mo": "zh_TW",
+            "zh-hant-tw": "zh_TW",
+            "zh-hk": "zh_TW",
+            "zh-mo": "zh_TW",
+            "zh-tw": "zh_TW",
+        },
         Pollutants: {
             co: "CO",
             no: "NO",
@@ -95,6 +87,20 @@ export default class ColorfulClouds {
                 3: "future",
                 4: "past",
                 5: "unknown",
+            },
+            Categories: {
+                1: "Geo",
+                2: "Met",
+                3: "Safety",
+                4: "Security",
+                5: "Rescue",
+                6: "Fire",
+                7: "Health",
+                8: "Env",
+                9: "Transport",
+                10: "Infra",
+                11: "CBRNE",
+                12: "Other",
             },
         },
         Availability: {
@@ -801,8 +807,9 @@ export default class ColorfulClouds {
         const eventOnsetTime = this.#WeatherAlertDateISOString(alert?.onset_time) || effectiveTime;
         const area = Array.isArray(alert?.areas) ? alert.areas.find(item => item) : undefined;
         const geocode = Array.isArray(area?.geocodes) ? area.geocodes.find(item => item?.value) : undefined;
-        const description = String(alert?.event_name ?? alert?.headline ?? "").trim();
-        const message = String(alert?.description ?? alert?.headline ?? description).trim();
+        const eventName = String(alert?.event_name ?? "").trim();
+        const description = String(alert?.headline ?? "").trim() || eventName;
+        const message = String(alert?.description ?? alert?.headline ?? eventName).trim();
         const source = String(alert?.sender_name ?? "").trim() || config.Sources[Number(alert?.source)] || "";
 
         return {
@@ -817,7 +824,8 @@ export default class ColorfulClouds {
             identifier: alert?.id,
             issuedTime,
             message,
-            ...(description ? { phenomenon: description } : {}),
+            ...(eventName ? { eventName } : {}),
+            phenomenon: (Array.isArray(alert?.categories) ? alert.categories : []).map(category => config.Categories[Number(category)]).find(Boolean) || eventName || "Other",
             reportedAt: issuedTime,
             severity: config.Severities[Number(alert?.severity)] || "unknown",
             ...(source ? { source } : {}),

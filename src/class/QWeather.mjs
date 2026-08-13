@@ -10,40 +10,13 @@ export const QWEATHER_ALERT_TIMEOUT_SECONDS = 10;
 export default class QWeather {
     constructor(parameters, token, host = "api.qweather.com") {
         this.Name = "QWeather";
-        this.Version = "5.1.0";
+        this.Version = "5.2.1";
         Console.debug(`🟧 ${this.Name} v${this.Version}`);
         this.endpoint = `https://${host || "api.qweather.com"}`;
         this.headers = { "X-QW-Api-Key": String(token ?? "").trim() || QWEATHER_PUBLIC_TOKEN };
         this.version = parameters.version;
-        const language = String(parameters.language ?? "")
-            .trim()
-            .toLowerCase();
-        switch (language) {
-            case "":
-                this.language = "zh";
-                break;
-            case "zh-cn":
-            case "zh-sg":
-            case "zh-hans-cn":
-                this.language = "zh-hans";
-                break;
-            case "zh-hant-hk":
-            case "zh-hant-mo":
-            case "zh-hant-tw":
-            case "zh-hk":
-            case "zh-mo":
-            case "zh-tw":
-                this.language = "zh-hant";
-                break;
-            case "en-au":
-            case "en-ca":
-            case "en-gb":
-            case "en-us":
-                this.language = "en";
-                break;
-            default:
-                this.language = language;
-        }
+        const language = String(parameters.language ?? "").trim();
+        this.language = this.#Config.Language[language.toLowerCase()] ?? (language || this.#Config.Language[""]);
         this.latitude = parameters.latitude;
         this.longitude = parameters.longitude;
         this.country = parameters.country;
@@ -55,6 +28,28 @@ export default class QWeather {
     };
 
     #Config = {
+        Language: {
+            "": "zh",
+            en: "en",
+            "en-au": "en",
+            "en-ca": "en",
+            "en-gb": "en",
+            "en-us": "en",
+            ja: "ja",
+            "ja-jp": "ja",
+            zh: "zh",
+            "zh-cn": "zh-hans",
+            "zh-sg": "zh-hans",
+            "zh-hans": "zh-hans",
+            "zh-hans-cn": "zh-hans",
+            "zh-hant": "zh-hant",
+            "zh-hant-hk": "zh-hant",
+            "zh-hant-mo": "zh-hant",
+            "zh-hant-tw": "zh-hant",
+            "zh-hk": "zh-hant",
+            "zh-mo": "zh-hant",
+            "zh-tw": "zh-hant",
+        },
         Pollutants: {
             co: "CO",
             no: "NO",
@@ -75,6 +70,180 @@ export default class QWeather {
             "mg/m3": "MILLIGRAMS_PER_CUBIC_METER",
             ppb: "PARTS_PER_BILLION",
             ppm: "PARTS_PER_MILLION",
+        },
+        WeatherAlert: {
+            // QWeather does not expose CAP categories. Map its documented
+            // event codes, with specific categories checked before Met.
+            EventCategories: [
+                {
+                    category: "Geo",
+                    codes: [
+                        [1013, 1013],
+                        [1037, 1037],
+                        [1241, 1251],
+                        [1603, 1603],
+                        [2032, 2032],
+                        [2159, 2159],
+                        [2163, 2163],
+                        [2320, 2323],
+                        [2348, 2348],
+                        [2363, 2363],
+                        [2373, 2373],
+                        [2378, 2378],
+                        [2399, 2400],
+                        [3140, 3140],
+                        [3144, 3144],
+                    ],
+                },
+                {
+                    category: "Safety",
+                    codes: [
+                        [1044, 1045],
+                        [1218, 1218],
+                        [2419, 2420],
+                        [2713, 2713],
+                    ],
+                },
+                { category: "Security", codes: [] },
+                { category: "Rescue", codes: [] },
+                {
+                    category: "Fire",
+                    codes: [
+                        [1025, 1026],
+                        [1041, 1041],
+                        [1077, 1077],
+                        [1084, 1084],
+                        [1605, 1605],
+                        [2005, 2005],
+                        [2132, 2132],
+                        [2158, 2158],
+                        [2192, 2192],
+                        [2207, 2207],
+                        [2302, 2302],
+                        [2349, 2349],
+                        [2414, 2414],
+                        [2743, 2743],
+                        [3139, 3139],
+                    ],
+                },
+                {
+                    category: "Health",
+                    codes: [
+                        [1024, 1024],
+                        [1042, 1042],
+                        [1066, 1066],
+                        [1068, 1069],
+                        [1071, 1072],
+                        [1082, 1082],
+                        [1210, 1210],
+                        [2851, 2851],
+                    ],
+                },
+                {
+                    category: "Env",
+                    codes: [
+                        [1029, 1029],
+                        [1032, 1032],
+                        [1067, 1067],
+                        [1074, 1074],
+                        [1217, 1217],
+                        [1271, 1274],
+                        [2202, 2202],
+                        [2374, 2374],
+                        [2389, 2389],
+                        [2413, 2413],
+                        [2527, 2527],
+                    ],
+                },
+                {
+                    category: "Transport",
+                    codes: [
+                        [1021, 1021],
+                        [1046, 1046],
+                        [1057, 1057],
+                        [2077, 2078],
+                        [2300, 2301],
+                        [2328, 2328],
+                        [2360, 2360],
+                        [2375, 2376],
+                        [2385, 2388],
+                        [2415, 2415],
+                        [2554, 2554],
+                        [2722, 2723],
+                        [2791, 2797],
+                    ],
+                },
+                {
+                    category: "Infra",
+                    codes: [
+                        [1081, 1081],
+                        [1203, 1204],
+                        [1216, 1216],
+                        [1221, 1221],
+                    ],
+                },
+                { category: "CBRNE", codes: [] },
+                {
+                    category: "Other",
+                    codes: [
+                        [2166, 2166],
+                        [3106, 3106],
+                        [3147, 3147],
+                        [9999, 9999],
+                    ],
+                },
+                {
+                    category: "Met",
+                    codes: [
+                        [1001, 1089],
+                        [1201, 1221],
+                        [1241, 1251],
+                        [1271, 1274],
+                        [1601, 1610],
+                        [1701, 1710],
+                        [1801, 1805],
+                        [2001, 2007],
+                        [2029, 2033],
+                        [2050, 2054],
+                        [2070, 2085],
+                        [2100, 2109],
+                        [2111, 2111],
+                        [2120, 2135],
+                        [2150, 2150],
+                        [2152, 2168],
+                        [2190, 2193],
+                        [2200, 2205],
+                        [2207, 2221],
+                        [2300, 2309],
+                        [2311, 2328],
+                        [2330, 2333],
+                        [2341, 2341],
+                        [2343, 2343],
+                        [2345, 2346],
+                        [2348, 2400],
+                        [2409, 2409],
+                        [2411, 2426],
+                        [2501, 2502],
+                        [2521, 2532],
+                        [2550, 2554],
+                        [2581, 2581],
+                        [2601, 2620],
+                        [2641, 2641],
+                        [2713, 2713],
+                        [2722, 2723],
+                        [2743, 2743],
+                        [2749, 2749],
+                        [2751, 2753],
+                        [2755, 2756],
+                        [2791, 2797],
+                        [2801, 2804],
+                        [2839, 2853],
+                        [2873, 2874],
+                        [3101, 3107],
+                        [3131, 3148],
+                    ],
+                },
+            ],
         },
         Availability: {
             Minutely: ["CN", "HK", "MO"],
@@ -978,13 +1147,15 @@ export default class QWeather {
         const eventOnsetTime = this.#DateISOString(alert?.eventOnsetTime || alert?.onsetTime || alert?.effectiveTime) || effectiveTime;
         const eventEndTime = this.#DateISOString(alert?.eventEndTime || alert?.endTime || alert?.expiresTime || alert?.expireTime);
         const guidelines = this.#SplitWeatherAlertGuidelines(alert?.instruction ?? alert?.instructions);
-        const description = this.#NormalizeWeatherAlertTitle(alert?.headline || alert?.eventType?.name || alert?.description);
-        const message = String(alert?.description ?? "").trim() || String(alert?.headline ?? description ?? "").trim();
+        const eventName = String(alert?.eventType?.name ?? "").trim();
+        const description = String(alert?.headline ?? "").trim() || eventName || String(alert?.description ?? "").trim();
+        const message = (String(alert?.description ?? "").trim() || description).replace(/^\p{Ll}/u, character => character.toUpperCase());
         const source = String(alert?.senderName ?? "").trim() || this.#ExtractWeatherAlertIssuer(alert?.headline || alert?.description);
         const areaId = String(alert?.areaId ?? alert?.areaCode ?? "").trim();
         const areaName = String(alert?.areaName ?? "").trim();
-        const phenomenon = String(alert?.eventType?.name ?? "").trim();
         const token = String(alert?.token ?? alert?.eventType?.code ?? alert?.icon ?? "").trim();
+        const eventCode = Number(alert?.eventType?.code);
+        const phenomenon = (this.#Config.WeatherAlert.EventCategories.find(({ codes }) => codes.some(([start, end]) => eventCode >= start && eventCode <= end))?.category ?? eventName) || "Other";
         const importance = this.#NormalizeWeatherAlertImportance(alert?.importance);
         const significance = this.#NormalizeWeatherAlertSignificance(alert?.significance);
         const warningColor = this.#NormalizeWeatherAlertColor(alert?.color, alert?.headline, alert?.description);
@@ -1005,6 +1176,7 @@ export default class QWeather {
             ...(importance ? { importance } : {}),
             issuedTime,
             message,
+            ...(eventName ? { eventName } : {}),
             ...(phenomenon ? { phenomenon } : {}),
             responses,
             reportedAt: issuedTime,
@@ -1138,20 +1310,23 @@ export default class QWeather {
         );
     }
 
-    #NormalizeWeatherAlertTitle(description) {
-        const title = String(description ?? "").trim();
-        const chinese = title.match(/^.+?发布\s*[:：]?\s*(.+)$/);
-        if (chinese?.[1]) return chinese[1].trim();
-        const english = title.match(/^.+?\s+(?:issues?|issued)\s*[:：]?\s*(.+)$/i);
-        return english?.[1]?.trim() || title;
-    }
-
     #ExtractWeatherAlertIssuer(description) {
         const title = String(description ?? "").trim();
-        const chinese = title.match(/^(.+?)发布\s*[:：]?\s*(.+)$/);
+        const chinese = title.match(/^(.+?)(?:发布|發布|更新)\s*[:：]?\s*(.+)$/);
         if (chinese?.[1]) return chinese[1].trim();
-        const english = title.match(/^(.+?)\s+(?:issues?|issued)\s*[:：]?\s*(.+)$/i);
-        return english?.[1]?.trim() || "";
+
+        const cap = title.match(/^.+?\s+issued\b[\s\S]*\s+by\s+(.+)$/i);
+        if (cap?.[1]) return cap[1].trim();
+
+        const issued = title.match(/^(.+?)\s+issued\b\s*[:：]?\s*(.+)$/i);
+        if (issued?.[1] && issued?.[2]) {
+            const context = issued[2].trim();
+            const capContext = /^(?:for\b|\d{1,2}[/:.-]|\p{L}+\s+(?:\d{1,2}\b|at\b|until\b))/iu.test(context);
+            return capContext ? "" : issued[1].trim();
+        }
+
+        const issues = title.match(/^(.+?)\s+issues?\b\s*[:：]?\s*(.+)$/i);
+        return issues?.[1]?.trim() || "";
     }
 
     #SplitWeatherAlertGuidelines(instruction) {
