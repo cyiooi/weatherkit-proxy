@@ -201,7 +201,7 @@ export async function Response($request, $response, context = {}) {
                                             }
                                             case "weatherAlerts": {
                                                 const originalWeatherAlerts = body.weatherAlerts;
-                                                body.weatherAlerts = await InjectWeatherAlerts(body.weatherAlerts, Settings, enviroments, parameters);
+                                                body.weatherAlerts = await InjectWeatherAlerts(body.weatherAlerts, Settings, enviroments, parameters, $request.headers);
                                                 if (body.weatherAlerts !== originalWeatherAlerts) replacementDataSets.add(dataSet);
                                                 break;
                                             }
@@ -223,6 +223,8 @@ export async function Response($request, $response, context = {}) {
                                 // 去掉所有 providerLogo（本仓库既定行为）；被剥离 logo 的可注入区段需要重编码以反映改动。
                                 const allSections = ["currentWeather", "forecastDaily", "forecastHourly", "forecastNextHour", "airQuality", "weatherAlerts"];
                                 allSections.forEach(s => {
+                                    // 预警第三方补全失败或关闭时必须保留整个 Apple 区段的原始字节。
+                                    if (s === "weatherAlerts" && !replacementDataSets.has(s)) return;
                                     if (body?.[s]?.metadata?.providerLogo) {
                                         body[s].metadata.providerLogo = undefined;
                                         replacementDataSets.add(s);
@@ -452,23 +454,31 @@ async function InjectForecastNextHour(forecastNextHour, Settings, enviroments, p
  * replaces established Apple fields, and a failed/empty source leaves Apple
  * bytes untouched.
  */
-async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, parameters) {
+async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, parameters, requestHeaders = {}) {
     const supportedProviderNames = new Set(["国家预警信息发布中心", "國家預警信息發布中心", "National Early Warning Center"]);
-    if (!weatherAlerts?.metadata || !supportedProviderNames.has(weatherAlerts.metadata.providerName)) return weatherAlerts;
+    if (!weatherAlerts?.metadata) return weatherAlerts;
     if (!Array.isArray(weatherAlerts.alerts) || !weatherAlerts.alerts.length) return weatherAlerts;
 
     let sourceAlerts;
     let attributionUrl;
+    let detailsUrl;
     const providerName = WeatherAlerts.ResolveProvider(Settings);
     if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return weatherAlerts;
     switch (providerName) {
         case "WeatherKit":
             return weatherAlerts;
+        case "QWeatherWeb":
+            sourceAlerts = await enviroments.qWeather.WeatherAlertWeb(weatherAlerts.detailsUrl, requestHeaders, weatherAlerts.metadata.language || parameters.language);
+            attributionUrl = sourceAlerts?.attributionUrl;
+            detailsUrl = sourceAlerts?.detailsUrl;
+            break;
         case "QWeather":
+            if (!supportedProviderNames.has(weatherAlerts.metadata.providerName)) return weatherAlerts;
             sourceAlerts = await enviroments.qWeather.WeatherAlert();
             attributionUrl = "https://developer.qweather.com/attribution.html";
             break;
         case "ColorfulClouds":
+            if (!supportedProviderNames.has(weatherAlerts.metadata.providerName)) return weatherAlerts;
             sourceAlerts = await enviroments.colorfulClouds.WeatherAlert();
             attributionUrl = "https://www.caiyunapp.com/h5";
             break;
@@ -487,9 +497,13 @@ async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, paramet
     };
     const before = JSON.stringify(candidate.alerts);
     WeatherAlerts.mergeAlerts(candidate.alerts, sourceAlerts.alerts);
-    if (JSON.stringify(candidate.alerts) === before) return weatherAlerts;
+    const alertsChanged = JSON.stringify(candidate.alerts) !== before;
+    if (!alertsChanged && providerName !== "QWeatherWeb") return weatherAlerts;
 
-    candidate.metadata.attributionUrl = attributionUrl;
+    if (attributionUrl) candidate.metadata.attributionUrl = attributionUrl;
+    if (detailsUrl) candidate.detailsUrl = detailsUrl;
+    if (providerName === "QWeatherWeb") return candidate;
+
     // Prefer request coordinates: the pinned schema stores metadata as float32,
     // whose decoded values can otherwise leak long precision tails into ids.
     const latitude = parameters.latitude ?? candidate.metadata.latitude;

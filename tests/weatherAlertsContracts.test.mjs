@@ -35,6 +35,24 @@ const QWEATHER_ALERT_API = {
     ],
 };
 
+const QWEATHER_ALERT_HTML = `<!doctype html>
+<html>
+    <head><title>建邺天气预警</title></head>
+    <body>
+        <h1 class="c-submenu__location">建邺</h1>
+        <span class="c-submenu__location-adm">江苏 南京</span>
+        <div class="c-city-warning-events warning--orange">
+            <h3>建邺区气象台发布雷暴橙色预警信号。</h3>
+            <p>发布日期：2026-07-31T11:00:00+08:00</p>
+            <p class="warning-events__txt">预计午后将出现雷暴天气。</p>
+            <div class="warning-explain"><h4>预警标准</h4><p>可能伴有短时强降水。</p></div>
+            <div class="warning-defense__txt"><p>1. 注意防范雷电。</p><p>2. 远离高大树木。</p></div>
+        </div>
+        <div class="c-city-warning-around"></div>
+        <a class="data-source__txt">预警数据来源：国家预警信息发布中心</a>
+    </body>
+</html>`;
+
 const COLORFUL_CLOUDS_ALERT_API = {
     alerts: [
         {
@@ -81,10 +99,59 @@ test("weatherAlerts 只接管合法的明文经纬度标识", () => {
     }
 });
 
-test("天气预警默认启用 QWeather，非法配置仍安全回退 WeatherKit", () => {
-    assert.equal(WeatherAlerts.ResolveProvider({}), "QWeather");
+test("QWeather 网页标识与 Apple 提供的详情 URL 使用严格白名单", () => {
+    assert.equal(QWeather.IsWeatherAlertPageIdentifier("jianye-101190110"), true);
+    assert.equal(QWeather.IsWeatherAlertPageIdentifier("jian'an-101180407"), true);
+    for (const identifier of ["jianye-10119011", "jianye-1011901100", "101190110", "35889ee6-fa82-5f9f-8e49-fad78c4f383a", "https://evil.example"]) {
+        assert.equal(QWeather.IsWeatherAlertPageIdentifier(identifier), false, identifier);
+    }
+
+    const sourceUrl = "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService";
+    assert.equal(QWeather.ParseWeatherAlertPageURL(sourceUrl), "jianye-101190110");
+    assert.equal(QWeather.ParseWeatherAlertPageURL("https://www.qweather.com/en/severe-weather/jianye-101190110.html?from=AppleWeatherService"), "jianye-101190110");
+    for (const url of ["https://www.qweather.com/severe-weather/jianye-101190110.html", "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService&lang=zh-CN", "https://evil.example/severe-weather/jianye-101190110.html?from=AppleWeatherService"]) {
+        assert.equal(QWeather.ParseWeatherAlertPageURL(url), undefined, url);
+    }
+    assert.equal(QWeather.BuildWeatherAlertPageURL("jianye-101190110", "en-US").toString(), "https://www.qweather.com/en/severe-weather/jianye-101190110.html?from=AppleWeatherService");
+    assert.equal(QWeather.BuildAppleAlertDetailsURL("jianye-101190110", "zh-CN"), "https://weatherkit.apple.com/alertDetails/index.html?ids=jianye-101190110&lang=zh-CN&party=qweather");
+});
+
+test("QWeather 网页解析正文、等级与指南，并使用受控请求头", async () => {
+    const extracted = QWeather.ExtractWeatherAlertPage(QWEATHER_ALERT_HTML);
+    assert.equal(extracted.areaName, "建邺");
+    assert.equal(extracted.source, "建邺区气象台");
+    assert.equal(extracted.alerts[0].eventName, "雷暴橙色预警信号。");
+    assert.equal(extracted.alerts[0].severity, "severe");
+    assert.equal(extracted.alerts[0].issuedTime, "2026-07-31T03:00:00.000Z");
+    assert.deepEqual(extracted.alerts[0].guidelines, ["注意防范雷电。", "远离高大树木。"]);
+
+    const originalFetch = globalThis.fetch;
+    let requested;
+    globalThis.fetch = async (input, init = {}) => {
+        requested = { url: typeof input === "string" ? input : input.url, headers: new Headers(init.headers), signal: init.signal };
+        return new globalThis.Response(QWEATHER_ALERT_HTML, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    };
+    try {
+        const sourceUrl = "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService";
+        const weatherAlerts = await new QWeather({ country: "CN", language: "zh-CN" }, null).WeatherAlertWeb(sourceUrl, { "User-Agent": "WeatherKit/Test" });
+        assert.equal(requested.url, sourceUrl);
+        assert.equal(requested.headers.get("Accept"), "text/html,application/xhtml+xml");
+        assert.equal(requested.headers.get("Referer"), "https://www.qweather.com/");
+        assert.equal(requested.headers.get("User-Agent"), "WeatherKit/Test");
+        assert.ok(requested.signal instanceof AbortSignal, "网页请求应设置超时信号");
+        assert.equal(weatherAlerts.detailsUrl, "https://weatherkit.apple.com/alertDetails/index.html?ids=jianye-101190110&lang=zh-CN&party=qweather");
+        assert.equal(weatherAlerts.alerts[0].areaId, "101190110");
+        assert.equal(weatherAlerts.alerts[0].areaName, "建邺");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("天气预警默认启用 QWeather 网页，非法配置仍安全回退 WeatherKit", () => {
+    assert.equal(WeatherAlerts.ResolveProvider({}), "QWeatherWeb");
     assert.equal(WeatherAlerts.ResolveProvider({ WeatherAlerts: { Provider: "unknown" } }), "WeatherKit");
     assert.equal(WeatherAlerts.CanUseProvider({}), true);
+    assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "QWeatherWeb" } }), true);
     assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "ColorfulClouds" }, API: { ColorfulClouds: { Token: null } } }), false);
     assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "ColorfulClouds" }, API: { ColorfulClouds: { Token: "  " } } }), false);
     assert.equal(WeatherAlerts.CanUseProvider({ WeatherAlerts: { Provider: "QWeather" }, API: { QWeather: { Token: null } } }), true);
@@ -632,18 +699,79 @@ test("v1 weatherAlerts 详情接口按配置返回 Apple 兼容 JSON", async () 
     });
 });
 
-test("v1 weatherAlerts 默认使用 api.qweather.com 与公共 Key", async () => {
-    await withMockedFetch(QWEATHER_ALERT_API, async requested => {
+test("v1 weatherAlerts 默认网页源不把坐标标识发送给和风 API 或 Apple", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async input => assert.fail(`默认网页源不应请求坐标 API: ${input}`);
+    try {
         const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), []);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v1 weatherAlerts 默认按 9 位 Location ID 抓取和风网页并返回 Apple JSON", async () => {
+    const originalFetch = globalThis.fetch;
+    let requested;
+    globalThis.fetch = async (input, init = {}) => {
+        requested = { url: typeof input === "string" ? input : input.url, headers: new Headers(init.headers) };
+        return new globalThis.Response(QWEATHER_ALERT_HTML, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    };
+    try {
+        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=jianye-101190110&country=CN", {
+            headers: { "User-Agent": "Safari/Test" },
+        });
         const body = await response.json();
 
         assert.equal(response.status, 200);
-        assert.equal(requested.length, 1);
-        assert.equal(requested[0].url, "https://api.qweather.com/weatheralert/v1/current/32.115/118.814?lang=zh-hans");
-        assert.equal(requested[0].headers.get("X-QW-Api-Key"), QWEATHER_PUBLIC_TOKEN);
+        assert.equal(requested.url, "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService");
+        assert.equal(requested.headers.get("User-Agent"), "Safari/Test");
         assert.equal(body.length, 1);
-        assert.equal(body[0].areaId, "320100");
-    });
+        assert.equal(body[0].areaId, "101190110");
+        assert.equal(body[0].areaName, "建邺");
+        assert.equal(body[0].description, "雷暴橙色预警");
+        assert.equal(body[0].attributionURL, "https://www.qweather.com/severe-weather/jianye-101190110.html");
+        assert.equal(body[0].severity, "severe");
+        assert.equal(body[0].source, "建邺区气象台");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v1 QWeather 网页详情不受摘要补全数据源开关影响", async () => {
+    const originalFetch = globalThis.fetch;
+    const requested = [];
+    globalThis.fetch = async (input, init = {}) => {
+        requested.push({ url: typeof input === "string" ? input : input.url, headers: new Headers(init.headers) });
+        return new globalThis.Response(QWEATHER_ALERT_HTML, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    };
+    try {
+        for (const provider of ["WeatherKit", "QWeather"]) {
+            const encoded = encodeConfigPayload(JSON.stringify({ WeatherAlerts: { Provider: provider } }));
+            const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=jianye-101190110&country=CN`);
+            assert.equal(response.status, 200);
+            assert.equal((await response.json()).length, 1, provider);
+        }
+        assert.equal(requested.length, 2);
+        assert.ok(requested.every(request => request.url === "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService"));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v1 非中国 QWeather 地区标识不会被默认标成 CN", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new globalThis.Response(QWEATHER_ALERT_HTML, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    try {
+        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=en&ids=london-123456789");
+        const body = await response.json();
+        assert.equal(body.length, 1);
+        assert.equal(body[0].countryCode, "");
+        assert.equal(body[0].eventSource, "");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test("v1 weatherAlerts 显式选择 WeatherKit 时不把坐标标识转发给 Apple", async () => {
@@ -712,6 +840,12 @@ test("v1 weatherAlerts 第三方连接失败时返回空数组，不把坐标标
 });
 
 test("v1 weatherAlerts 的 QWeather 403 返回空数组，不把坐标标识转发给 Apple", async () => {
+    const encoded = encodeConfigPayload(
+        JSON.stringify({
+            WeatherAlerts: { Provider: "QWeather" },
+            API: { QWeather: { Token: "test-token", Host: "api.qweather.com" } },
+        }),
+    );
     const requested = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async input => {
@@ -732,7 +866,7 @@ test("v1 weatherAlerts 的 QWeather 403 返回空数组，不把坐标标识转�
     };
 
     try {
-        const response = await app.request("https://proxy.example/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN");
+        const response = await app.request(`https://proxy.example/p/${encoded}/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814&country=CN`);
         assert.equal(response.status, 200);
         assert.match(response.headers.get("content-type"), /^application\/json/);
         assert.deepEqual(await response.json(), []);
@@ -845,6 +979,103 @@ test("预警摘要识别英文颜色词与繁体预警用语中的同一事件",
         ],
     );
     assert.equal(traditionalChinese.description, "雷雨大風藍色預警");
+});
+
+test("v2 weatherAlerts 默认从 Apple 的 QWeather 页面链接补全并改写集合详情", async () => {
+    const sourceUrl = "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService";
+    const originalBytes = createWeatherAlertRoot(
+        "QWeather",
+        [
+            {
+                areaId: "",
+                areaName: "",
+                description: "雷暴",
+                phenomenon: "Other",
+                source: "QWeather",
+                token: "",
+            },
+        ],
+        { detailsUrl: sourceUrl },
+    );
+    const parameters = { country: "CN", dataSets: ["weatherAlerts"], language: "zh-Hans", latitude: 32.115, longitude: 118.814 };
+    const originalFetch = globalThis.fetch;
+    let requested;
+    globalThis.fetch = async (input, init = {}) => {
+        requested = { url: typeof input === "string" ? input : input.url, headers: new Headers(init.headers) };
+        return new globalThis.Response(QWEATHER_ALERT_HTML, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    };
+
+    try {
+        const response = await Response(
+            {
+                url: "https://weatherkit.apple.com/api/v2/weather/zh-Hans-CN/32.115/118.814?country=CN&dataSets=weatherAlerts",
+                headers: { "User-Agent": "WeatherKit/Test" },
+            },
+            {
+                bodyBytes: originalBytes,
+                headers: { "Content-Type": "application/vnd.apple.flatbuffer" },
+                status: 200,
+            },
+            {
+                Settings: { Weather: { Replace: [] } },
+                parameters,
+                enviroments: {
+                    country: "CN",
+                    qWeather: new QWeather(parameters, null),
+                },
+            },
+        );
+        const decoded = WeatherKit2.decode(new ByteBuffer(new Uint8Array(response.body)), ["weatherAlerts"]).weatherAlerts;
+
+        assert.equal(requested.url, sourceUrl);
+        assert.equal(requested.headers.get("User-Agent"), "WeatherKit/Test");
+        assert.notDeepEqual(new Uint8Array(response.body), originalBytes);
+        assert.equal(decoded.detailsUrl, "https://weatherkit.apple.com/alertDetails/index.html?ids=jianye-101190110&lang=zh-CN&party=qweather");
+        assert.equal(decoded.metadata.attributionUrl, sourceUrl);
+        assert.equal(decoded.alerts.length, 1, "网页源不得新增 Apple 未给出的预警");
+        assert.equal(decoded.alerts[0].areaId, "101190110");
+        assert.equal(decoded.alerts[0].areaName, "建邺");
+        assert.equal(decoded.alerts[0].description, "雷暴橙色预警");
+        assert.equal(decoded.alerts[0].severity, "SEVERE");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test("v2 weatherAlerts 的 QWeather 网页 403 时连同 providerLogo 保留原始字节与详情 URL", async () => {
+    const sourceUrl = "https://www.qweather.com/severe-weather/jianye-101190110.html?from=AppleWeatherService";
+    const originalBytes = createWeatherAlertRoot("QWeather", undefined, {
+        detailsUrl: sourceUrl,
+        metadata: { providerLogo: "https://apple.example/provider-logo.png" },
+    });
+    const parameters = { country: "CN", dataSets: ["weatherAlerts"], language: "zh-CN", latitude: 32.115, longitude: 118.814 };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new globalThis.Response("denied", { status: 403, headers: { "content-type": "text/html" } });
+
+    try {
+        const response = await Response(
+            {
+                url: "https://weatherkit.apple.com/api/v2/weather/zh-Hans-CN/32.115/118.814?country=CN&dataSets=weatherAlerts",
+                headers: {},
+            },
+            {
+                bodyBytes: originalBytes,
+                headers: { "Content-Type": "application/vnd.apple.flatbuffer" },
+                status: 200,
+            },
+            {
+                Settings: { Weather: { Replace: [] }, WeatherAlerts: { Provider: "QWeatherWeb" } },
+                parameters,
+                enviroments: {
+                    country: "CN",
+                    qWeather: new QWeather(parameters, null),
+                },
+            },
+        );
+        assert.deepEqual(new Uint8Array(response.body), originalBytes);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test("v2 weatherAlerts 显式关闭补全时不请求第三方并保留原始字节", async () => {
@@ -1087,7 +1318,7 @@ function normalizedQWeatherAlerts() {
     };
 }
 
-function createWeatherAlertRoot(providerName, alertOverrides) {
+function createWeatherAlertRoot(providerName, alertOverrides, collectionOverrides = {}) {
     const builder = new Builder(4096);
     const defaultAlert = {
         areaId: "",
@@ -1127,9 +1358,10 @@ function createWeatherAlertRoot(providerName, alertOverrides) {
                 reportedTime: 1_785_573_420,
                 temporarilyUnavailable: false,
                 sourceType: "STATION",
+                ...(collectionOverrides.metadata ?? {}),
             },
             alerts,
-            detailsUrl: "https://apple.example/alerts",
+            detailsUrl: collectionOverrides.detailsUrl ?? "https://apple.example/alerts",
         },
     });
     builder.finish(root);

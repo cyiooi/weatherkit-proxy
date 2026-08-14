@@ -1,8 +1,8 @@
 /**
  * WeatherKit weather-alert helpers adapted from NSRingo/WeatherKit v3.2.2.
  *
- * The proxy only needs coordinate-based alert details, so the upstream legacy
- * QWeather HTML scraper is intentionally not included here.
+ * QWeather's public severe-weather page is the default source. Explicit API
+ * providers remain available for coordinate-based alert details.
  */
 export default class WeatherAlerts {
     /** Resolve weather-alert enrichment to an explicitly supported provider. */
@@ -10,23 +10,25 @@ export default class WeatherAlerts {
         switch (settings?.WeatherAlerts?.Provider) {
             case "ColorfulClouds":
             case "QWeather":
+            case "QWeatherWeb":
                 return settings.WeatherAlerts.Provider;
             case "WeatherKit":
                 return "WeatherKit";
             case undefined:
             case null:
             case "":
-                return "QWeather";
+                return "QWeatherWeb";
             default:
                 return "WeatherKit";
         }
     }
 
-    /** QWeather has an upstream public Key; Caiyun CAP requires an explicit authorized token. */
+    /** QWeather Web needs no API credential; Caiyun CAP requires an explicit token. */
     static CanUseProvider(settings, providerName = WeatherAlerts.ResolveProvider(settings)) {
         switch (providerName) {
             case "ColorfulClouds":
                 return String(settings?.API?.ColorfulClouds?.Token ?? "").trim().length > 0;
+            case "QWeatherWeb":
             case "QWeather":
                 return true;
             default:

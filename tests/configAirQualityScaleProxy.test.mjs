@@ -21,7 +21,7 @@ async function downloadConfig(path) {
     return response.text();
 }
 
-test("配置页默认代理 airQualityScale，并启用逐日、逐小时与 QWeather 预警补全", () => {
+test("配置页默认代理 airQualityScale，并启用逐日、逐小时与 QWeather 网页预警补全", () => {
     const html = renderIndex("proxy.example", "https");
     const proxyInput = html.match(/<input[^>]*id="proxyAirQualityScale"[^>]*>/)?.[0];
     assert.ok(proxyInput, "配置页应包含 airQualityScale 代理开关");
@@ -36,20 +36,22 @@ test("配置页默认代理 airQualityScale，并启用逐日、逐小时与 QWe
     const qweatherAlertsInput = html.match(/<input[^>]*id="qweatherWeatherAlerts"[^>]*>/)?.[0];
     assert.ok(qweatherAlertsInput, "纯和风配置应提供天气预警补全开关");
     assert.match(qweatherAlertsInput, /\bchecked\b/, "和风天气预警补全默认应开启");
-    assert.match(html, /id="qweatherHost"[^>]*placeholder="[^"]*api\.qweather\.com"/, "和风 Host 应提示当前默认公共域名");
+    assert.match(html, /id="qweatherHost"[^>]*placeholder="[^"]*qweatherapi\.com"/, "和风 Host 应提示使用控制台专属域名");
     assert.match(html, /id="weatherAlertsProvider"/, "配置页应提供天气预警补全数据源");
     const weatherAlertsSelect = html.match(/<select[^>]*id="weatherAlertsProvider"[^>]*>.*?<\/select>/)?.[0];
     assert.ok(weatherAlertsSelect, "配置页应包含天气预警数据源选项");
-    assert.match(weatherAlertsSelect, /<option value="QWeather" selected>/, "高级配置应默认使用 QWeather 预警补全");
+    assert.match(weatherAlertsSelect, /<option value="QWeatherWeb" selected>/, "高级配置应默认使用 QWeather 网页预警补全");
+    assert.match(weatherAlertsSelect, /<option value="QWeather">/, "高级配置应保留显式 QWeather API 选项");
     assert.match(html, /weatherAlertsEnabled: true/, "纯和风预设状态应默认启用预警补全");
-    assert.match(html, /weatherAlertsProvider: "QWeather"/, "高级预设状态应默认启用 QWeather 预警补全");
+    assert.match(html, /weatherAlertsProvider: "QWeatherWeb"/, "高级预设状态应默认启用 QWeather 网页预警补全");
     assert.match(html, /WeatherAlerts: \{ Provider: presetData\.Advanced\.weatherAlertsProvider \}/, "高级配置应保存天气预警数据源");
-    assert.match(html, /WeatherAlerts: \{ Provider: "QWeather" \}/, "纯彩云配置也应默认使用 QWeather 预警补全");
-    assert.match(html, /WeatherAlerts: \{ Provider: presetData\.QWeather\.weatherAlertsEnabled \? "QWeather" : "WeatherKit" \}/, "纯和风配置应由显式开关控制预警补全");
+    assert.match(html, /WeatherAlerts: \{ Provider: "QWeatherWeb" \}/, "纯彩云配置也应默认使用 QWeather 网页预警补全");
+    assert.match(html, /WeatherAlerts: \{ Provider: presetData\.QWeather\.weatherAlertsEnabled \? "QWeatherWeb" : "WeatherKit" \}/, "纯和风配置应由显式开关控制网页预警补全");
+    assert.match(html, /const caiyunWeatherAlertsProvider = "QWeatherWeb"/, "纯彩云配置回填时应识别网页预警源");
+    assert.match(html, /\["QWeatherWeb", "QWeather", "WeatherKit"\]\.includes\(decoded\.WeatherAlerts\?\.Provider \|\| "QWeatherWeb"\)/, "纯和风配置回填应兼容网页、旧 API 与关闭状态");
     assert.equal(database.WeatherKit.Settings.Weather.ReplaceDaily, true);
     assert.equal(database.WeatherKit.Settings.Weather.ReplaceHourly, true);
-    assert.equal(database.WeatherKit.Settings.WeatherAlerts.Provider, "QWeather");
-    assert.equal(database.WeatherKit.Settings.API.QWeather.Host, "api.qweather.com");
+    assert.equal(database.WeatherKit.Settings.WeatherAlerts.Provider, "QWeatherWeb");
 });
 
 test("新配置载荷只使用小写 Base32，并保留大小写敏感配置值", () => {
@@ -64,15 +66,67 @@ test("新配置载荷只使用小写 Base32，并保留大小写敏感配置值"
     assert.equal(decodeConfigPayload(encoded), json);
 });
 
-test("客户端配置默认代理 airQualityScale 与坐标型 weatherAlerts", async () => {
+test("客户端配置代理 QWeather 地区与坐标型 weatherAlerts，但不接管 Apple UUID", async () => {
     for (const filename of CONFIG_FILES) {
         const content = await downloadConfig(`/conf/${filename}`);
         assert.match(content, /\/api\/v1\/airQualityScale\//, filename);
         assert.match(content, /\/api\/v1\/weatherAlerts\\?/, filename);
+        assert.match(content, /ids=\[\^&#\]\*-/, `${filename} 应接管带 9 位 Location ID 的和风地区标识`);
         assert.match(content, /ids=-\?\[0-9\]/, `${filename} 应限制为坐标型预警标识`);
         assert.doesNotMatch(content, /ids=\.\{6,\}/, `${filename} 不应接管 Apple 原生预警 UUID`);
         assert.doesNotMatch(content, /__AIR_QUALITY_SCALE_PROXY_/, `${filename} 不应泄露模板标记`);
         assert.match(content, /\/api\/v2\/weather\//, `${filename} 应保留天气代理规则`);
+    }
+});
+
+test("客户端 weatherAlerts 两条规则保留逐用户配置并严格区分标识", async () => {
+    const encoded = encodeCurrentConfig({
+        WeatherAlerts: { Provider: "QWeather" },
+        API: { QWeather: { Token: "test-token", Host: "account.qweatherapi.com" } },
+    });
+    const validURLs = [
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=jianye-101190110",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?timezone=Asia%2FShanghai&ids=jianye-101190110&country=CN",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=32.115,118.814",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=-90,-180&country=CN",
+    ];
+    const invalidURLs = [
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?ids=jianye-101190110",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=jianye-10119011",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=jianye-1011901100",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=123456789",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=35889ee6-fa82-5f9f-8e49-fad78c4f383a",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=32.115%2C118.814",
+        "https://weatherkit.apple.com/api/v1/weatherAlerts?lang=zh-CN&ids=.115,118.814",
+    ];
+
+    for (const filename of CONFIG_FILES) {
+        const content = await downloadConfig(`/conf/${encoded}/${filename}`);
+        const patterns = content
+            .split("\n")
+            .filter(line => line.includes("weatherAlerts\\?") && line.includes("ids="))
+            .map(line => {
+                const start = line.indexOf("^https");
+                const end = line.indexOf("$", start);
+                assert.notEqual(start, -1, filename);
+                assert.notEqual(end, -1, filename);
+                return new RegExp(line.slice(start, end + 1));
+            });
+        assert.equal(patterns.length, 2, `${filename} 应分别保留地区与坐标两条规则`);
+        for (const url of validURLs)
+            assert.ok(
+                patterns.some(pattern => pattern.test(url)),
+                `${filename}: ${url}`,
+            );
+        for (const url of invalidURLs)
+            assert.ok(
+                patterns.every(pattern => !pattern.test(url)),
+                `${filename}: ${url}`,
+            );
+
+        const configuredTarget = `https://proxy.example/p/${encoded}/api/v1/weatherAlerts?$1`;
+        assert.equal(content.split(configuredTarget).length - 1, 2, `${filename} 两条规则都应携带配置路径`);
+        assert.doesNotMatch(content, /https:\/\/proxy\.example\/api\/v1\/weatherAlerts\?\$1/, `${filename} 不应丢失逐用户配置`);
     }
 });
 

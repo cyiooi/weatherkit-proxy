@@ -60,12 +60,12 @@ export interface Settings {
         /**
          * [天气预警] 补全数据源
          *
-         * 只补全国家预警中心已有的 WeatherKit 预警摘要；WeatherKit 表示不补全。
-         * 和风 Token 留空时使用上游内置公共 Key；彩云 Token 需显式配置且具备 CAP 接口权限。
+         * 默认从 Apple FlatBuffer 给出的和风预警页面补全已有摘要；WeatherKit 表示不补全。
+         * 和风 API 与彩云 API 均为显式可选数据源，并使用各自配置的凭据。
          *
-         * @defaultValue "QWeather"
+         * @defaultValue "QWeatherWeb"
          */
-        Provider?: "WeatherKit" | "ColorfulClouds" | "QWeather";
+        Provider?: "WeatherKit" | "QWeatherWeb" | "ColorfulClouds" | "QWeather";
     };
     NextHour?: {
         /**
@@ -305,9 +305,9 @@ export interface Settings {
             /**
              * [API] 和风天气主机
              *
-             * 和风天气 API 使用的主机名
+             * 和风天气控制台提供的专属 *.qweatherapi.com API Host
              *
-             * @defaultValue "api.qweather.com"
+             * @defaultValue ""
              */
             Host?: string;
             /**

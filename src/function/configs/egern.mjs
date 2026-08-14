@@ -192,8 +192,11 @@ url_rewrites:
 - match: ^https?://weatherkit.apple.com/api/v2/weather/
   location: https://__HOST__/api/v2/weather/
   status_code: 307
+- match: ^https?://weatherkit.apple.com/api/v1/weatherAlerts\\?([^#]*&ids=[^&#]*-[0-9]{9}(?:&[^#]*)?)$
+  location: https://__HOST__/api/v1/weatherAlerts?$1
+  status_code: 307
 - match: ^https?://weatherkit.apple.com/api/v1/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$
-  location: https://__PLAIN_HOST__/api/v1/weatherAlerts?$1
+  location: https://__HOST__/api/v1/weatherAlerts?$1
   status_code: 307
 mitm:
   hostnames:
