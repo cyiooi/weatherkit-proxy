@@ -89,7 +89,8 @@ export default class WeatherAlerts {
             }
             if (!messages.length && alert.description) messages.push({ language: context.language, text: alert.description });
 
-            const responses = WeatherAlerts.#BuildResponses(alert.guidelines, alert.responses);
+            const cancelled = WeatherAlerts.#IsCancelled(alert);
+            const responses = cancelled ? ["allClear"] : WeatherAlerts.#BuildResponses(alert.guidelines, alert.responses);
             const areaId = alert.areaId || contextAreaId;
             const areaName = alert.areaName || extracted?.areaName;
             const effectiveTime = alert.effectiveTime ?? alert.issuedTime;
@@ -126,7 +127,7 @@ export default class WeatherAlerts {
                 severity: alert.severity,
                 source,
                 ...(alert.token ? { token: alert.token } : {}),
-                urgency: alert.urgency || "unknown",
+                urgency: cancelled ? "past" : alert.urgency || "unknown",
             };
         });
     }

@@ -53,6 +53,40 @@ const QWEATHER_ALERT_HTML = `<!doctype html>
     </body>
 </html>`;
 
+const QWEATHER_ALERT_ORDER_HTML = `<!doctype html>
+<html>
+    <head><title>建邺天气预警</title></head>
+    <body>
+        <h1 class="c-submenu__location">建邺</h1>
+        <div class="c-city-warning-events warning--red">
+            <h3>建邺区气象台发布大风红色预警信号。</h3>
+            <p>发布日期：2026-08-14T09:00:00+08:00</p>
+            <p class="warning-events__txt">大风红色预警正在生效。</p>
+        </div>
+        <div class="c-city-warning-events warning--orange">
+            <h3>建邺区气象台发布暴雨橙色预警信号。</h3>
+            <p>发布日期：2026-08-14T10:00:00+08:00</p>
+            <p class="warning-events__txt">暴雨橙色预警正在生效。</p>
+        </div>
+        <div class="c-city-warning-events warning--yellow">
+            <h3>建邺区气象台发布雷电黄色预警信号。</h3>
+            <p>发布日期：2026-08-14T11:00:00+08:00</p>
+            <p class="warning-events__txt">雷电黄色预警正在生效。</p>
+        </div>
+        <div class="c-city-warning-events warning--blue">
+            <h3>建邺区气象台发布台风蓝色预警信号。</h3>
+            <p>发布日期：2026-08-14T12:00:00+08:00</p>
+            <p class="warning-events__txt">台风蓝色预警正在生效。</p>
+        </div>
+        <div class="c-city-warning-events warning--blue">
+            <h3>建邺区气象台解除台风蓝色预警信号。</h3>
+            <p>发布日期：2026-08-14T13:00:00+08:00</p>
+            <p class="warning-events__txt">台风蓝色预警已经解除。</p>
+        </div>
+        <div class="c-city-warning-around"></div>
+    </body>
+</html>`;
+
 const COLORFUL_CLOUDS_ALERT_API = {
     alerts: [
         {
@@ -122,6 +156,7 @@ test("QWeather 网页解析正文、等级与指南，并使用受控请求头",
     assert.equal(extracted.source, "建邺区气象台");
     assert.equal(extracted.alerts[0].eventName, "雷暴橙色预警信号。");
     assert.equal(extracted.alerts[0].severity, "severe");
+    assert.equal(extracted.alerts[0].urgency, "expected");
     assert.equal(extracted.alerts[0].issuedTime, "2026-07-31T03:00:00.000Z");
     assert.deepEqual(extracted.alerts[0].guidelines, ["注意防范雷电。", "远离高大树木。"]);
 
@@ -145,6 +180,44 @@ test("QWeather 网页解析正文、等级与指南，并使用受控请求头",
     } finally {
         globalThis.fetch = originalFetch;
     }
+});
+
+test("QWeather 网页沿用紧急程度、最新同类、解除状态与严重程度排序", () => {
+    const extracted = QWeather.ExtractWeatherAlertPage(QWEATHER_ALERT_ORDER_HTML);
+    const built = WeatherAlerts.Build(extracted, {
+        attributionUrl: "https://www.qweather.com/severe-weather/jianye-101190110.html",
+        countryCode: "CN",
+        eventSource: "CN",
+        identifier: "jianye-101190110",
+        language: "zh-CN",
+    });
+
+    assert.deepEqual(
+        built.map(alert => alert.description),
+        ["大风红色预警", "暴雨橙色预警", "雷电黄色预警", "建邺区气象台解除台风蓝色预警"],
+    );
+    assert.deepEqual(
+        built.map(alert => alert.urgency),
+        ["immediate", "expected", "future", "past"],
+    );
+    assert.deepEqual(
+        built.map(alert => alert.precedence),
+        [0, 1, 2, 3],
+    );
+    assert.deepEqual(built.at(-1).responses, ["allClear"]);
+
+    const summaries = ["大风", "暴雨", "雷电", "台风"].map(description => ({
+        description,
+        responses: [],
+        severity: "UNKNOWN",
+        urgency: "UNKNOWN",
+    }));
+    WeatherAlerts.mergeAlerts(summaries, extracted.alerts);
+    assert.deepEqual(
+        summaries.map(alert => alert.urgency),
+        ["IMMEDIATE", "EXPECTED", "FUTURE", "PAST"],
+    );
+    assert.deepEqual(summaries.at(-1).responses, ["ALLCLEAR"]);
 });
 
 test("天气预警默认启用 QWeather 网页，非法配置仍安全回退 WeatherKit", () => {
@@ -734,6 +807,7 @@ test("v1 weatherAlerts 默认按 9 位 Location ID 抓取和风网页并返回 A
         assert.equal(body[0].attributionURL, "https://www.qweather.com/severe-weather/jianye-101190110.html");
         assert.equal(body[0].severity, "severe");
         assert.equal(body[0].source, "建邺区气象台");
+        assert.equal(body[0].urgency, "expected");
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -1037,6 +1111,7 @@ test("v2 weatherAlerts 默认从 Apple 的 QWeather 页面链接补全并改写�
         assert.equal(decoded.alerts[0].areaName, "建邺");
         assert.equal(decoded.alerts[0].description, "雷暴橙色预警");
         assert.equal(decoded.alerts[0].severity, "SEVERE");
+        assert.equal(decoded.alerts[0].urgency, "EXPECTED");
     } finally {
         globalThis.fetch = originalFetch;
     }

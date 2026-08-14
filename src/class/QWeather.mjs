@@ -429,33 +429,23 @@ export default class QWeather {
             const headline = description || message;
             const parsedHeadline = QWeather.#ParseWeatherAlertPageHeadline(headline);
             const source = parsedHeadline.source || dataSource || "QWeather";
-            const severitySource = `${start.className} ${description}`.toLowerCase();
-            let severity = "unknown";
-            switch (true) {
-                case /warning--red|红色|\bred\b/.test(severitySource):
-                    severity = "extreme";
-                    break;
-                case /warning--orange|橙色|\borange\b/.test(severitySource):
-                    severity = "severe";
-                    break;
-                case /warning--yellow|黄色|\byellow\b/.test(severitySource):
-                    severity = "moderate";
-                    break;
-                case /warning--blue|蓝色|\bblue\b/.test(severitySource):
-                    severity = "minor";
-                    break;
-            }
+            const classColor = start.className.match(/warning--(white|gray|green|blue|yellow|amber|orange|red|purple|black)/i)?.[1];
+            const warningColor = QWeather.#NormalizeWeatherAlertColor(classColor, headline, message);
+            const cancelled = QWeather.#IsCancelledWeatherAlertText(headline, message);
 
             alerts.push({
+                ...(cancelled ? { cancelled: true } : {}),
                 description: headline,
                 ...(parsedHeadline.eventName ? { eventName: parsedHeadline.eventName } : {}),
                 guidelines,
                 issuedTime: issueDate.toISOString(),
                 message,
                 reportedAt: issueDate.toISOString(),
-                severity,
+                ...(cancelled ? { responses: ["allClear"] } : {}),
+                severity: QWeather.#WeatherAlertSeverityFromColor(warningColor),
                 source,
                 standard,
+                urgency: cancelled ? "past" : QWeather.#WeatherAlertUrgencyFromColor(warningColor),
             });
         }
 
@@ -1359,7 +1349,7 @@ export default class QWeather {
         const phenomenon = (this.#Config.WeatherAlert.EventCategories.find(({ codes }) => codes.some(([start, end]) => eventCode >= start && eventCode <= end))?.category ?? eventName) || "Other";
         const importance = this.#NormalizeWeatherAlertImportance(alert?.importance);
         const significance = this.#NormalizeWeatherAlertSignificance(alert?.significance);
-        const warningColor = this.#NormalizeWeatherAlertColor(alert?.color, alert?.headline, alert?.description);
+        const warningColor = QWeather.#NormalizeWeatherAlertColor(alert?.color, alert?.headline, alert?.description);
         const cancelled = this.#IsCancelledWeatherAlert(alert);
         const responses = cancelled ? ["allClear"] : Array.isArray(alert?.responseTypes) ? alert.responseTypes.map(response => String(response ?? "").trim()).filter(Boolean) : [];
 
@@ -1406,23 +1396,10 @@ export default class QWeather {
         // Apple exposes four danger levels while Chinese warning systems may
         // use five colors. Preserve QWeather's severity when present and only
         // use the color hierarchy as a compatibility fallback.
-        return (
-            {
-                white: "minor",
-                gray: "minor",
-                green: "minor",
-                blue: "minor",
-                yellow: "moderate",
-                amber: "moderate",
-                orange: "severe",
-                red: "extreme",
-                purple: "extreme",
-                black: "extreme",
-            }[colorCode] || "unknown"
-        );
+        return QWeather.#WeatherAlertSeverityFromColor(colorCode);
     }
 
-    #NormalizeWeatherAlertColor(color, ...descriptions) {
+    static #NormalizeWeatherAlertColor(color, ...descriptions) {
         const supportedCodes = new Set(["white", "gray", "green", "blue", "yellow", "amber", "orange", "red", "purple", "black"]);
         let code = String(color?.code ?? color ?? "")
             .trim()
@@ -1466,8 +1443,7 @@ export default class QWeather {
             .toLowerCase();
         if (["cancel", "cancelled", "canceled"].includes(messageType)) return true;
 
-        const text = [alert?.headline, alert?.description].map(value => String(value ?? "")).join("\n");
-        return /(?:解除|取消|撤销|撤消).{0,30}(?:预警|預警|警报|警報|警示)|\b(?:cancelled|canceled|all[ -]?clear)\b/i.test(text);
+        return QWeather.#IsCancelledWeatherAlertText(alert?.headline, alert?.description);
     }
 
     #NormalizeWeatherAlertCertainty(certainty) {
@@ -1500,15 +1476,7 @@ export default class QWeather {
         // Chinese warning colors describe severity rather than action time,
         // but Apple's alert page only renders its fixed urgency values. Use
         // the closest supported action timing when QWeather leaves it unknown.
-        return (
-            {
-                white: "future",
-                blue: "future",
-                yellow: "future",
-                orange: "expected",
-                red: "immediate",
-            }[colorCode] || "unknown"
-        );
+        return QWeather.#WeatherAlertUrgencyFromColor(colorCode);
     }
 
     #ExtractWeatherAlertIssuer(description) {
@@ -1571,7 +1539,7 @@ export default class QWeather {
 
     static #ParseWeatherAlertPageHeadline(description) {
         const title = String(description ?? "").trim();
-        const chinese = title.match(/^(.+?)(?:发布|發布|更新)\s*[:：]?\s*(.+)$/);
+        const chinese = title.match(/^(.+?)(?:发布|發布|更新|解除|取消|撤销|撤消)\s*[:：]?\s*(.+)$/);
         if (chinese?.[1] && chinese?.[2]) return { eventName: chinese[2].trim(), source: chinese[1].trim() };
 
         const cap = title.match(/^(.+?)\s+issued\b[\s\S]*\s+by\s+(.+)$/i);
@@ -1587,6 +1555,40 @@ export default class QWeather {
         const issues = title.match(/^(.+?)\s+issues?\b\s*[:：]?\s*(.+)$/i);
         if (issues?.[1] && issues?.[2]) return { eventName: issues[2].trim(), source: issues[1].trim() };
         return { eventName: title, source: "" };
+    }
+
+    static #IsCancelledWeatherAlertText(...values) {
+        const text = values.map(value => String(value ?? "")).join("\n");
+        return /(?:解除|取消|撤销|撤消).{0,30}(?:预警|預警|警报|警報|警示)|\b(?:cancelled|canceled|all[ -]?clear)\b/i.test(text);
+    }
+
+    static #WeatherAlertSeverityFromColor(colorCode) {
+        return (
+            {
+                white: "minor",
+                gray: "minor",
+                green: "minor",
+                blue: "minor",
+                yellow: "moderate",
+                amber: "moderate",
+                orange: "severe",
+                red: "extreme",
+                purple: "extreme",
+                black: "extreme",
+            }[colorCode] || "unknown"
+        );
+    }
+
+    static #WeatherAlertUrgencyFromColor(colorCode) {
+        return (
+            {
+                white: "future",
+                blue: "future",
+                yellow: "future",
+                orange: "expected",
+                red: "immediate",
+            }[colorCode] || "unknown"
+        );
     }
 
     #ConvertTimeStamp(fxDate, time) {
