@@ -154,44 +154,19 @@ async function buildWeatherAlertsDetails(url, Settings, requestHeaders = {}) {
     const coordinates = WeatherAlerts.ParseCoordinateIdentifier(identifier);
     if (!pageIdentifier && !coordinates) return null;
 
+    // Coordinate identifiers were generated only by the removed API alert
+    // providers. Keep legacy requests away from Apple, which accepts UUIDs.
+    if (coordinates) return [];
+    if (!WeatherAlerts.CanUseProvider(Settings)) return [];
+
     const language = url.searchParams.get("lang")?.trim() || "zh-CN";
-    const country = url.searchParams.get("country")?.trim().toUpperCase() || "CN";
-    const providerName = WeatherAlerts.ResolveProvider(Settings);
-    // 地区和坐标标识均由代理生成，Apple 的详情接口只接受原生预警 UUID。
-    // 第三方不可用时返回空数组，避免把这些标识误传给 Apple 并收到 HTML 页面。
-    const parameters = { ...(coordinates ?? {}), country, language, version: "v1" };
+    const parameters = { country: url.searchParams.get("country")?.trim().toUpperCase() || "CN", language, version: "v1" };
+    const sourceUrl = QWeather.BuildWeatherAlertPageURL(identifier, language)?.toString();
+    const provider = new QWeather(parameters);
+    const extracted = await provider.WeatherAlertWeb(sourceUrl, requestHeaders);
+    const attributionUrl = QWeather.BuildWeatherAlertPageURL(identifier, language, false)?.toString();
 
-    let extracted;
-    let attributionUrl;
-    if (pageIdentifier) {
-        const sourceUrl = QWeather.BuildWeatherAlertPageURL(identifier, language)?.toString();
-        const provider = new QWeather(parameters, Settings?.API?.QWeather?.Token, Settings?.API?.QWeather?.Host);
-        extracted = await provider.WeatherAlertWeb(sourceUrl, requestHeaders);
-        attributionUrl = QWeather.BuildWeatherAlertPageURL(identifier, language, false)?.toString();
-    } else {
-        if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return [];
-        switch (providerName) {
-            case "WeatherKit":
-            case "QWeatherWeb":
-                return [];
-            case "QWeather": {
-                const provider = new QWeather(parameters, Settings?.API?.QWeather?.Token, Settings?.API?.QWeather?.Host);
-                extracted = await provider.WeatherAlert();
-                attributionUrl = "https://www.12379.cn/";
-                break;
-            }
-            case "ColorfulClouds": {
-                const provider = new ColorfulClouds(parameters, Settings.API.ColorfulClouds.Token);
-                extracted = await provider.WeatherAlert();
-                attributionUrl = "https://www.caiyunapp.com/h5";
-                break;
-            }
-            default:
-                return [];
-        }
-    }
-
-    const detailsCountry = pageIdentifier ? (identifier.match(/-([0-9]{9})$/)?.[1]?.startsWith("101") ? "CN" : "") : country;
+    const detailsCountry = identifier.match(/-([0-9]{9})$/)?.[1]?.startsWith("101") ? "CN" : "";
     const alerts = WeatherAlerts.Build(extracted, {
         attributionUrl,
         identifier,

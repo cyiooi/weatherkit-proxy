@@ -39,7 +39,6 @@ DOMAIN,tether.edge.apple,REJECT-DROP
 ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v2\\/weather\\/ https://__HOST__/api/v2/weather/ header
 # 🌤 WeatherKit.api.v1.weatherAlerts.response
 ^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=[^&#]*-[0-9]{9}(?:&[^#]*)?)$ https://__HOST__/api/v1/weatherAlerts?$1 header
-^https?:\\/\\/weatherkit\\.apple\\.com\\/api\\/v1\\/weatherAlerts\\?([^#]*&ids=-?[0-9]+(?:\\.[0-9]+)?,-?[0-9]+(?:\\.[0-9]+)?(?:&[^#]*)?)$ https://__HOST__/api/v1/weatherAlerts?$1 header
 
 [MITM]
 hostname = %APPEND% weatherkit.apple.com`;

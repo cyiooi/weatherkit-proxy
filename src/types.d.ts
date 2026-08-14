@@ -61,11 +61,10 @@ export interface Settings {
          * [天气预警] 补全数据源
          *
          * 默认从 Apple FlatBuffer 给出的和风预警页面补全已有摘要；WeatherKit 表示不补全。
-         * 和风 API 与彩云 API 均为显式可选数据源，并使用各自配置的凭据。
          *
          * @defaultValue "QWeatherWeb"
          */
-        Provider?: "WeatherKit" | "QWeatherWeb" | "ColorfulClouds" | "QWeather";
+        Provider?: "WeatherKit" | "QWeatherWeb";
     };
     NextHour?: {
         /**

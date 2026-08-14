@@ -449,42 +449,18 @@ async function InjectForecastNextHour(forecastNextHour, Settings, enviroments, p
 }
 
 /**
- * Complete an existing National Warning Center summary with a configured data
- * source. The operation is intentionally conservative: it never adds alerts or
- * replaces established Apple fields, and a failed/empty source leaves Apple
- * bytes untouched.
+ * Complete an existing Apple summary from the QWeather page referenced by its
+ * details URL. The operation is intentionally conservative: it never adds
+ * alerts or replaces established Apple fields, and a failed/empty page leaves
+ * Apple bytes untouched.
  */
 async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, parameters, requestHeaders = {}) {
-    const supportedProviderNames = new Set(["国家预警信息发布中心", "國家預警信息發布中心", "National Early Warning Center"]);
     if (!weatherAlerts?.metadata) return weatherAlerts;
     if (!Array.isArray(weatherAlerts.alerts) || !weatherAlerts.alerts.length) return weatherAlerts;
 
-    let sourceAlerts;
-    let attributionUrl;
-    let detailsUrl;
     const providerName = WeatherAlerts.ResolveProvider(Settings);
     if (!WeatherAlerts.CanUseProvider(Settings, providerName)) return weatherAlerts;
-    switch (providerName) {
-        case "WeatherKit":
-            return weatherAlerts;
-        case "QWeatherWeb":
-            sourceAlerts = await enviroments.qWeather.WeatherAlertWeb(weatherAlerts.detailsUrl, requestHeaders, weatherAlerts.metadata.language || parameters.language);
-            attributionUrl = sourceAlerts?.attributionUrl;
-            detailsUrl = sourceAlerts?.detailsUrl;
-            break;
-        case "QWeather":
-            if (!supportedProviderNames.has(weatherAlerts.metadata.providerName)) return weatherAlerts;
-            sourceAlerts = await enviroments.qWeather.WeatherAlert();
-            attributionUrl = "https://developer.qweather.com/attribution.html";
-            break;
-        case "ColorfulClouds":
-            if (!supportedProviderNames.has(weatherAlerts.metadata.providerName)) return weatherAlerts;
-            sourceAlerts = await enviroments.colorfulClouds.WeatherAlert();
-            attributionUrl = "https://www.caiyunapp.com/h5";
-            break;
-        default:
-            return weatherAlerts;
-    }
+    const sourceAlerts = await enviroments.qWeather.WeatherAlertWeb(weatherAlerts.detailsUrl, requestHeaders, weatherAlerts.metadata.language || parameters.language);
     if (!Array.isArray(sourceAlerts?.alerts) || !sourceAlerts.alerts.length) return weatherAlerts;
 
     const candidate = {
@@ -495,22 +471,9 @@ async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, paramet
             ...(Array.isArray(alert?.responses) ? { responses: [...alert.responses] } : {}),
         })),
     };
-    const before = JSON.stringify(candidate.alerts);
     WeatherAlerts.mergeAlerts(candidate.alerts, sourceAlerts.alerts);
-    const alertsChanged = JSON.stringify(candidate.alerts) !== before;
-    if (!alertsChanged && providerName !== "QWeatherWeb") return weatherAlerts;
-
-    if (attributionUrl) candidate.metadata.attributionUrl = attributionUrl;
-    if (detailsUrl) candidate.detailsUrl = detailsUrl;
-    if (providerName === "QWeatherWeb") return candidate;
-
-    // Prefer request coordinates: the pinned schema stores metadata as float32,
-    // whose decoded values can otherwise leak long precision tails into ids.
-    const latitude = parameters.latitude ?? candidate.metadata.latitude;
-    const longitude = parameters.longitude ?? candidate.metadata.longitude;
-    const language = candidate.metadata.language || parameters.language || "zh-CN";
-    const country = parameters.country || "CN";
-    candidate.detailsUrl = `https://weatherkit.apple.com/alertDetails/index.html?ids=${latitude},${longitude}&lang=${encodeURIComponent(language)}&party=${encodeURIComponent(providerName)}&country=${encodeURIComponent(country)}`;
+    if (sourceAlerts.attributionUrl) candidate.metadata.attributionUrl = sourceAlerts.attributionUrl;
+    if (sourceAlerts.detailsUrl) candidate.detailsUrl = sourceAlerts.detailsUrl;
     return candidate;
 }
 

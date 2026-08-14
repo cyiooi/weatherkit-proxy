@@ -1,19 +1,21 @@
 /**
  * WeatherKit weather-alert helpers adapted from NSRingo/WeatherKit v3.2.2.
  *
- * QWeather's public severe-weather page is the default source. Explicit API
- * providers remain available for coordinate-based alert details.
+ * QWeather's public severe-weather page is the only enrichment source.
+ * WeatherKit keeps Apple's original alert data untouched.
  */
 export default class WeatherAlerts {
     /** Resolve weather-alert enrichment to an explicitly supported provider. */
     static ResolveProvider(settings) {
         switch (settings?.WeatherAlerts?.Provider) {
-            case "ColorfulClouds":
-            case "QWeather":
             case "QWeatherWeb":
-                return settings.WeatherAlerts.Provider;
+                return "QWeatherWeb";
             case "WeatherKit":
                 return "WeatherKit";
+            // Migrate configurations created before API alert providers were
+            // removed without issuing another API request.
+            case "ColorfulClouds":
+            case "QWeather":
             case undefined:
             case null:
             case "":
@@ -23,17 +25,9 @@ export default class WeatherAlerts {
         }
     }
 
-    /** QWeather Web needs no API credential; Caiyun CAP requires an explicit token. */
+    /** QWeather Web needs no API credential; WeatherKit disables enrichment. */
     static CanUseProvider(settings, providerName = WeatherAlerts.ResolveProvider(settings)) {
-        switch (providerName) {
-            case "ColorfulClouds":
-                return String(settings?.API?.ColorfulClouds?.Token ?? "").trim().length > 0;
-            case "QWeatherWeb":
-            case "QWeather":
-                return true;
-            default:
-                return false;
-        }
+        return providerName === "QWeatherWeb";
     }
 
     static ParseCoordinateIdentifier(ids) {

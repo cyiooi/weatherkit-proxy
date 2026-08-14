@@ -62,47 +62,6 @@ export default class ColorfulClouds {
             pm10: "PM10",
             other: "NOT_AVAILABLE",
         },
-        WeatherAlert: {
-            Sources: {
-                1: "US National Weather Service",
-                2: "Environment and Climate Change Canada",
-            },
-            Severities: {
-                1: "extreme",
-                2: "severe",
-                3: "moderate",
-                4: "minor",
-                5: "unknown",
-            },
-            Certainties: {
-                1: "observed",
-                2: "likely",
-                3: "possible",
-                4: "unlikely",
-                5: "unknown",
-            },
-            Urgencies: {
-                1: "immediate",
-                2: "expected",
-                3: "future",
-                4: "past",
-                5: "unknown",
-            },
-            Categories: {
-                1: "Geo",
-                2: "Met",
-                3: "Safety",
-                4: "Security",
-                5: "Rescue",
-                6: "Fire",
-                7: "Health",
-                8: "Env",
-                9: "Transport",
-                10: "Infra",
-                11: "CBRNE",
-                12: "Other",
-            },
-        },
         Availability: {
             Minutely: [
                 "CN",
@@ -287,38 +246,6 @@ export default class ColorfulClouds {
             Console.debug("✅ Minutely");
         }
         return forecastNextHour;
-    }
-
-    /** Fetch and normalize Caiyun's CAP weather-alert feed. */
-    async WeatherAlert() {
-        Console.debug("☑️ WeatherAlert");
-        const failedWeatherAlerts = {
-            alerts: [],
-            areaName: "",
-            source: "彩云天气",
-        };
-        const url = new URL("https://singer.caiyunhub.com/v3/cap_alert/location");
-        url.searchParams.set("token", this.token);
-        url.searchParams.set("longitude", this.longitude);
-        url.searchParams.set("latitude", this.latitude);
-        url.searchParams.set("language", this.language);
-
-        try {
-            const response = await fetch({ url: url.toString(), headers: this.headers, timeout: 3 });
-            const body = JSON.parse(response?.body ?? "{}");
-            if (response?.ok === false) {
-                Console.warn("WeatherAlert", `upstreamStatus: ${response.statusCode ?? response.status}`);
-                return failedWeatherAlerts;
-            }
-            if (!Array.isArray(body?.alerts)) throw Error(JSON.stringify(body?.error ?? body?.reason ?? body?.code ?? body));
-            return this.#CreateWeatherAlerts(body);
-        } catch (error) {
-            const reason = error?.cause?.code || error?.cause?.message || error?.message || String(error);
-            Console.warn("WeatherAlert", `unavailable: ${reason}`);
-            return failedWeatherAlerts;
-        } finally {
-            Console.debug("✅ WeatherAlert");
-        }
     }
 
     async #Hourly(hourlysteps = 273, begin = undefined) {
@@ -787,63 +714,5 @@ export default class ColorfulClouds {
                 windSpeed: hourly.result.hourly.wind[i].speed,
             })),
         };
-    }
-
-    #CreateWeatherAlerts(body) {
-        const convertedAlerts = (Array.isArray(body?.alerts) ? body.alerts : []).map(alert => this.#CreateWeatherAlert(alert)).filter(Boolean);
-        return {
-            alerts: convertedAlerts,
-            areaName: convertedAlerts.find(alert => alert?.areaName)?.areaName ?? "",
-            source: convertedAlerts.find(alert => alert?.source)?.source || "彩云天气",
-        };
-    }
-
-    #CreateWeatherAlert(alert) {
-        const config = this.#Config.WeatherAlert;
-        const issuedTime = this.#WeatherAlertDateISOString(alert?.sent_time);
-        if (!issuedTime) return undefined;
-        const effectiveTime = this.#WeatherAlertDateISOString(alert?.effective_time) || issuedTime;
-        const expireTime = this.#WeatherAlertDateISOString(alert?.expires_time);
-        const eventOnsetTime = this.#WeatherAlertDateISOString(alert?.onset_time) || effectiveTime;
-        const area = Array.isArray(alert?.areas) ? alert.areas.find(item => item) : undefined;
-        const geocode = Array.isArray(area?.geocodes) ? area.geocodes.find(item => item?.value) : undefined;
-        const eventName = String(alert?.event_name ?? "").trim();
-        const description = String(alert?.headline ?? "").trim() || eventName;
-        const message = String(alert?.description ?? alert?.headline ?? eventName).trim();
-        const source = String(alert?.sender_name ?? "").trim() || config.Sources[Number(alert?.source)] || "";
-
-        return {
-            ...(geocode?.value ? { areaId: String(geocode.value).trim() } : {}),
-            ...(area?.area_desc ? { areaName: String(area.area_desc).trim() } : {}),
-            certainty: config.Certainties[Number(alert?.certainty)] || "unknown",
-            description,
-            effectiveTime,
-            eventOnsetTime,
-            ...(expireTime ? { eventEndTime: expireTime, expireTime } : {}),
-            guidelines: this.#SplitWeatherAlertGuidelines(alert?.instruction),
-            identifier: alert?.id,
-            issuedTime,
-            message,
-            ...(eventName ? { eventName } : {}),
-            phenomenon: (Array.isArray(alert?.categories) ? alert.categories : []).map(category => config.Categories[Number(category)]).find(Boolean) || eventName || "Other",
-            reportedAt: issuedTime,
-            severity: config.Severities[Number(alert?.severity)] || "unknown",
-            ...(source ? { source } : {}),
-            standard: "",
-            urgency: config.Urgencies[Number(alert?.urgency)] || "unknown",
-        };
-    }
-
-    #WeatherAlertDateISOString(value) {
-        const seconds = Number(value);
-        if (!Number.isFinite(seconds) || seconds <= 0) return "";
-        return new Date(seconds * 1000).toISOString();
-    }
-
-    #SplitWeatherAlertGuidelines(instruction) {
-        return String(instruction ?? "")
-            .split(/\r?\n/)
-            .map(line => line.replace(/^\s*\d+[.、]\s*/, "").trim())
-            .filter(Boolean);
     }
 }
