@@ -176,19 +176,13 @@ export default class QWeather {
         return nearest;
     }
 
-    /** Determine whether ids is a QWeather severe-weather page identifier. */
-    static IsWeatherAlertPageIdentifier(ids) {
-        return /^[\p{L}\p{N}._'-]+-[0-9]{9}$/u.test(String(ids ?? "").trim());
-    }
-
     /** Extract a location identifier from an Apple-provided QWeather details URL. */
     static ParseWeatherAlertPageURL(value) {
         try {
             const url = new URL(value);
             if (url.protocol !== "https:" || url.hostname !== "www.qweather.com") return undefined;
             if (url.search !== "?from=AppleWeatherService" || url.hash) return undefined;
-            const identifier = decodeURIComponent(url.pathname.match(/^\/{1,2}(?:en\/)?severe-weather\/([^/]+)\.html$/)?.[1] ?? "");
-            return QWeather.IsWeatherAlertPageIdentifier(identifier) ? identifier : undefined;
+            return decodeURIComponent(url.pathname).match(/^\/{1,2}(?:en\/)?severe-weather\/([^/]+)\.html$/)?.[1];
         } catch {
             return undefined;
         }
@@ -197,8 +191,6 @@ export default class QWeather {
     /** Build the public QWeather severe-weather page URL for a location identifier. */
     static BuildWeatherAlertPageURL(identifier, language = "zh-CN", includeAppleSource = true) {
         identifier = String(identifier ?? "").trim();
-        if (!QWeather.IsWeatherAlertPageIdentifier(identifier)) return undefined;
-
         const url = new URL("https://www.qweather.com");
         url.pathname = String(language).toLowerCase().startsWith("en") ? `/en/severe-weather/${identifier}.html` : `/severe-weather/${identifier}.html`;
         if (includeAppleSource) url.searchParams.set("from", "AppleWeatherService");
@@ -207,7 +199,6 @@ export default class QWeather {
 
     /** Build the Apple details URL whose follow-up request is handled by this proxy. */
     static BuildAppleAlertDetailsURL(identifier, language = "zh-CN") {
-        if (!QWeather.IsWeatherAlertPageIdentifier(identifier)) return undefined;
         return `https://weatherkit.apple.com/alertDetails/index.html?ids=${encodeURIComponent(identifier)}&lang=${encodeURIComponent(language)}&party=qweather`;
     }
 
@@ -285,7 +276,6 @@ export default class QWeather {
     /** Fetch and extract a QWeather severe-weather page. */
     static async FetchWeatherAlertPage(identifier, language = "zh-CN", requestHeaders = {}) {
         const sourceUrl = QWeather.BuildWeatherAlertPageURL(identifier, language);
-        if (!sourceUrl) return { alerts: [], areaName: "", source: "QWeather" };
 
         const headerEntries = typeof requestHeaders?.entries === "function" ? Array.from(requestHeaders.entries()) : Object.entries(requestHeaders ?? {});
         const normalizedHeaders = Object.fromEntries(headerEntries.map(([key, value]) => [String(key).toLowerCase(), value]));

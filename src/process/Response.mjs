@@ -455,6 +455,7 @@ async function InjectForecastNextHour(forecastNextHour, Settings, enviroments, p
  * Apple bytes untouched.
  */
 async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, parameters, requestHeaders = {}) {
+    if (!Settings?.Weather?.Replace?.includes(parameters.country)) return weatherAlerts;
     if (!weatherAlerts?.metadata) return weatherAlerts;
     if (!Array.isArray(weatherAlerts.alerts) || !weatherAlerts.alerts.length) return weatherAlerts;
 
@@ -488,7 +489,6 @@ async function InjectWeatherAlerts(weatherAlerts, Settings, enviroments, paramet
 async function InjectAirQuality(airQuality, Settings, enviroments, preFetched = {}) {
     // Step1. 修复污染物单位，并将 Apple 内置 AQ scale 归一为稳定的无版本标识
     airQuality = AirQuality.FixPollutantsUnits(airQuality);
-    airQuality = AirQuality.NormalizeScaleIdentifier(airQuality);
 
     // Step2. 判断原始污染物是否为空，并在需要时注入污染物数据
     const isPollutantEmpty = !Array.isArray(airQuality?.pollutants) || airQuality.pollutants.length === 0;
@@ -499,7 +499,7 @@ async function InjectAirQuality(airQuality, Settings, enviroments, preFetched = 
     const needPollutants = shouldInjectPollutants && !!(injectedPollutants?.metadata && !injectedPollutants.metadata.temporarilyUnavailable);
 
     // Step3. 根据污染物补齐情况与替换配置，决定是否注入 AQI 指数
-    const needInjectIndex = needPollutants || Settings?.AirQuality?.Current?.Index?.Replace?.includes(AirQuality.GetNameFromScale(airQuality?.scale));
+    const needInjectIndex = needPollutants || Settings?.AirQuality?.Current?.Index?.Replace?.some(scaleName => AirQuality.ScaleMatches(airQuality?.scale, scaleName));
     let injectedIndex = injectedPollutants;
     if (needInjectIndex) {
         if (preFetched.index) {
@@ -632,7 +632,7 @@ async function InjectComparison(airQuality, currentIndexProvider, Settings, envi
                 return true;
             }
             case "WeatherKit": {
-                const result = AirQuality.GetNameFromScale(currentScale) === AirQuality.Config.Scales.HJ6332012.weatherKitScale.name;
+                const result = AirQuality.ScaleMatches(currentScale, AirQuality.Config.Scales.HJ6332012.weatherKitScale.name);
                 Console.debug("✅ isHJ6332012", result);
                 return result;
             }

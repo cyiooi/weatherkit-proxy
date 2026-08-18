@@ -11,7 +11,7 @@ export default {
                 Comparison: { ReplaceWhenCurrentChange: true, Yesterday: { PollutantsProvider: "ColorfulCloudsCN", IndexProvider: "ColorfulCloudsCN" } },
                 Calculate: { Algorithm: "WAQI_InstantCast_CN", AllowOverRange: true },
             },
-            API: { QWeather: { Token: null, Host: "api.qweather.com" }, ColorfulClouds: { Token: null } },
+            API: { QWeather: { Token: "bdd98ec1d87747f3a2e8b1741a5af796", Host: "api.qweather.com" }, ColorfulClouds: { Token: "Y2FpeXVuX25vdGlmeQ==" } },
             EdgeCache: false,
         },
         Configs: {

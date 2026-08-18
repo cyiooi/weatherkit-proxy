@@ -150,7 +150,7 @@ function parseQueryArguments(query = {}) {
 
 async function buildWeatherAlertsDetails(url, Settings, requestHeaders = {}) {
     const identifier = url.searchParams.get("ids");
-    const pageIdentifier = QWeather.IsWeatherAlertPageIdentifier(identifier);
+    const pageIdentifier = /^[\p{L}\p{N}._'-]+-[0-9]{9}$/u.test(String(identifier ?? "").trim());
     const coordinates = WeatherAlerts.ParseCoordinateIdentifier(identifier);
     if (!pageIdentifier && !coordinates) return null;
 
@@ -161,6 +161,9 @@ async function buildWeatherAlertsDetails(url, Settings, requestHeaders = {}) {
 
     const language = url.searchParams.get("lang")?.trim() || "zh-CN";
     const parameters = { country: url.searchParams.get("country")?.trim().toUpperCase() || "CN", language, version: "v1" };
+
+    if (!Settings?.Weather?.Replace?.includes(parameters.country)) return null;
+
     const sourceUrl = QWeather.BuildWeatherAlertPageURL(identifier, language)?.toString();
     const provider = new QWeather(parameters);
     const extracted = await provider.WeatherAlertWeb(sourceUrl, requestHeaders);
