@@ -198,8 +198,13 @@ export default class ColorfulClouds {
                                 temporarilyUnavailable: false,
                                 sourceType: "MODELED",
                             };
-                            body.result.minutely.probability = body.result.minutely.probability.map(probability => Math.round(probability * 100));
-                            let minuteStemp = new Date(body?.server_time * 1000).setSeconds(0, 0);
+                            body.result.minutely.probability = body.result.minutely.probability.map(probability => {
+                                const p = probability <= 1 ? probability * 100 : probability;
+                                return Math.min(100, Math.max(0, Math.round(p)));
+                            });
+                            let serverTime = body?.server_time;
+                            if (!serverTime) serverTime = Math.trunc(Date.now() / 1000);
+                            let minuteStemp = new Date(serverTime * 1000).setSeconds(0, 0);
                             minuteStemp = minuteStemp.valueOf() / 1000 - 60;
                             forecastNextHour = {
                                 metadata: metadata,

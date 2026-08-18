@@ -103,7 +103,11 @@ export default class ForecastNextHour {
 
     static Minute(minutes = [], description = "", units = "mmph") {
         Console.debug("☑️ Minute");
-        const precipitationType = ForecastNextHour.PrecipitationType(description);
+        let precipitationType = ForecastNextHour.PrecipitationType(description);
+        // 如果文本推断为晴天，但实际存在降水，则默认回退为 RAIN
+        if (precipitationType === "CLEAR" && minutes.some(m => m.precipitationIntensity > 0)) {
+            precipitationType = "RAIN";
+        }
         // refer: https://docs.caiyunapp.com/weather-api/v2/v2.6/tables/precip.html
 
         minutes = minutes.map((minute, _i) => {
@@ -121,7 +125,7 @@ export default class ForecastNextHour {
                         minute.condition = "HEAVY_SNOW";
                         break;
                     default:
-                        minute.condition = precipitationType;
+                        minute.condition = "SLEET";
                         break;
                 }
 
@@ -137,7 +141,7 @@ export default class ForecastNextHour {
                         minute.condition = "SNOW";
                         break;
                     default:
-                        minute.condition = precipitationType;
+                        minute.condition = "SLEET";
                         break;
                 }
                 minute.summaryCondition = precipitationType;
@@ -150,10 +154,10 @@ export default class ForecastNextHour {
                         minute.condition = "DRIZZLE";
                         break;
                     case "SNOW":
-                        minute.condition = "FLURRIES";
+                        minute.condition = "SNOW"; // 降级 FLURRIES 至 SNOW
                         break;
                     default:
-                        minute.condition = precipitationType;
+                        minute.condition = "SLEET";
                         break;
                 }
                 minute.summaryCondition = precipitationType;
@@ -165,10 +169,10 @@ export default class ForecastNextHour {
                         minute.condition = "POSSIBLE_DRIZZLE";
                         break;
                     case "SNOW":
-                        minute.condition = "POSSIBLE_FLURRIES";
+                        minute.condition = "POSSIBLE_SLEET"; // 降级 POSSIBLE_FLURRIES 至 POSSIBLE_SLEET
                         break;
                     default:
-                        minute.condition = `POSSIBLE_${precipitationType}`;
+                        minute.condition = "POSSIBLE_SLEET";
                         break;
                 }
                 minute.summaryCondition = precipitationType;
@@ -203,9 +207,9 @@ export default class ForecastNextHour {
         // 根据当前段内每分钟的 conditions 频次，判定最具代表性的条件
         const getRepresentativeCondition = counts => {
             const heavyRain = (counts["HEAVY_RAIN"] || 0) + (counts["HEAVY_SNOW"] || 0);
-            const moderateRain = (counts["RAIN"] || 0) + (counts["SNOW"] || 0);
-            const lightRain = (counts["DRIZZLE"] || 0) + (counts["FLURRIES"] || 0);
-            const possibleRain = (counts["POSSIBLE_DRIZZLE"] || 0) + (counts["POSSIBLE_FLURRIES"] || 0);
+            const moderateRain = (counts["RAIN"] || 0) + (counts["SNOW"] || 0) + (counts["SLEET"] || 0);
+            const lightRain = (counts["DRIZZLE"] || 0);
+            const possibleRain = (counts["POSSIBLE_DRIZZLE"] || 0) + (counts["POSSIBLE_SLEET"] || 0);
 
             const totalMinutes = Object.values(counts).reduce((a, b) => a + b, 0);
             // 阈值：大雨至少需要累计 12 分钟（总时长的 20%），但若该段很短则按 20% 折算，且最少 3 分钟
@@ -215,17 +219,19 @@ export default class ForecastNextHour {
                 return counts["HEAVY_RAIN"] ? "HEAVY_RAIN" : "HEAVY_SNOW";
             }
             if (heavyRain + moderateRain >= threshold) {
-                return counts["RAIN"] ? "RAIN" : "SNOW";
+                return counts["SLEET"] ? "SLEET" : (counts["RAIN"] ? "RAIN" : "SNOW");
             }
             if (heavyRain + moderateRain + lightRain >= threshold) {
-                return counts["DRIZZLE"] ? "DRIZZLE" : "FLURRIES";
+                return "DRIZZLE";
             }
             if (heavyRain + moderateRain + lightRain > 0) {
-                // 短时段未达代表性阈值时降级为“可能”，但必须保留雨/雪类型。
-                return counts["HEAVY_RAIN"] || counts["RAIN"] || counts["DRIZZLE"] ? "POSSIBLE_DRIZZLE" : "POSSIBLE_FLURRIES";
+                // 短时段未达代表性阈值时降级为“可能”，但必须保留类型。
+                if (counts["SLEET"]) return "POSSIBLE_SLEET";
+                if (counts["HEAVY_SNOW"] || counts["SNOW"]) return "POSSIBLE_SLEET";
+                return "POSSIBLE_DRIZZLE";
             }
             if (possibleRain > 0) {
-                return counts["POSSIBLE_DRIZZLE"] ? "POSSIBLE_DRIZZLE" : "POSSIBLE_FLURRIES";
+                return counts["POSSIBLE_SLEET"] ? "POSSIBLE_SLEET" : "POSSIBLE_DRIZZLE";
             }
             return "CLEAR";
         };
@@ -272,6 +278,9 @@ export default class ForecastNextHour {
                             maxCondition: "",
                             clear: minute.clear,
                         };
+                    } else {
+                        Summary.precipitationChance = Math.max(Summary.precipitationChance, minute.precipitationChance);
+                        Summary.precipitationIntensity = Math.max(Summary.precipitationIntensity, minute.precipitationIntensity);
                     }
                     Summary.endTime = 0;
                     Summary.clear = minute.clear;
